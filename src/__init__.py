@@ -85,8 +85,11 @@ def generate_sampled_points(
 polygon = Polygon([(0, 0), (50, 25), (100, 0), (100, 100), (0, 100), (25, 50)])
 points = [Point(25, 25), Point(30, 30), Point(75, 25), Point(75, 75), Point(25, 75)]
 
+
+obstacles = [box(84,72, 88, 78)]
+
 # Generate connection lines
-lines = generate_connection_lines(points, polygon, [], samples_per_edge=20)
+lines = generate_connection_lines(points, polygon, obstacles, samples_per_edge=20)
 
 # Plotting
 fig, ax = plt.subplots()
@@ -100,6 +103,10 @@ ax.plot(x_coords, y_coords, 'ro', markersize=3, label='Sampled Points')
 x_point_coords = [pt.x for pt in points]
 y_point_coords = [pt.y for pt in points]
 ax.plot(x_point_coords, y_point_coords, 'bo', markersize=3, label='Points')
+
+for obstacle in obstacles:
+    x_coords_ob, y_coords_ob = obstacle.exterior.xy
+    ax.fill(x_coords_ob, y_coords_ob, color='gray', alpha=0.5, label='Obstacle')
 
 # 绘制连接线
 for line in lines:

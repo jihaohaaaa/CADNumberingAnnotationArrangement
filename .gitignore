@@ -1,1 +1,7 @@
 .vscode
+
+dist
+
+__init__.spec
+
+build
