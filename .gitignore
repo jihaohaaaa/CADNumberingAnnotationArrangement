@@ -5,3 +5,7 @@ dist
 __init__.spec
 
 build
+
+repomix-output.md
+
+**/__pycache__
