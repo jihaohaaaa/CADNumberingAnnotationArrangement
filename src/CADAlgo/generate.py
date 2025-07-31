@@ -1,16 +1,25 @@
 from typing import List, Set, Tuple
 from shapely.geometry import Point, Polygon, LineString, box
 from shapely.geometry.base import BaseGeometry
-import matplotlib.pyplot as plt
-import matplotlib
 from heapq import heappush, heappop
-from mpl_interactions import zoom_factory
 from CADAlgo.check import is_valid_line
+
+#TODO: sampling points along boundary by length instead of pieces
 
 def generate_sampled_points(
     polygon: Polygon,
     samples_per_edge: int = 20
 ) -> List[Point]:
+    """
+    Sample points along the edges of a polygon
+
+    Args: 
+        polygon (Polygon): The polygon boundary.
+        samples_per_edge (int): Number of samples per edge. 
+
+    Returns:
+        List[Point]: List of sampled points along the polygon boundary.
+    """
     boundary_coords = list(polygon.exterior.coords)
     sampled_boundary_pts = []
 
@@ -24,12 +33,26 @@ def generate_sampled_points(
             sampled_boundary_pts.append(Point(x, y))
     return sampled_boundary_pts
 
+#TODO: use generate_sampled_points to generate sampled points along the polygon boundary
 def generate_connection_lines(
     points: List[Point],
     polygon: Polygon,
     obstacles: List[BaseGeometry],
     samples_per_edge: int = 20
 ) -> List[LineString]:
+    """
+    Generate connection lines from points to the polygon boundary,
+    avoiding obstacles and existing lines.
+
+    Args:
+        points (List[Point]): List of points to connect.
+        polygon (Polygon): The polygon boundary.
+        obstacles (List[BaseGeometry]): List of obstacles to avoid.
+        samples_per_edge (int): Number of samples per edge of the polygon.
+    
+    Returns:
+        List[LineString]: List of generated connection lines.
+    """
     # 1. Sample polygon boundary
     boundary_coords: List[Tuple[float, float]] = list(polygon.exterior.coords)
     sampled_boundary_pts: List[Point] = []
