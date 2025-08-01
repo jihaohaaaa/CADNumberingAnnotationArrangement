@@ -9,7 +9,7 @@ def is_valid_line(
     polygon: Polygon,
     obstacles: List[BaseGeometry],
     existing_lines: List[LineString],
-    dispel_line: GeometryCollection = None,
+    dispel_line: List[BaseGeometry] = None,
 ) -> bool:
     """
     Check if a line is valid for connection:
