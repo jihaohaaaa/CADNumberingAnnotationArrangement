@@ -1,8 +1,9 @@
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, LineString, Point
+from CADAlgo.parser import *
 
 
-def plot_schema(schema):
+def plot_schema(schema: Schema):
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.set_aspect("equal")
     ax.set_title(f"Schema: {schema.schema_name}")

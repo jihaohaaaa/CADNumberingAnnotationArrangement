@@ -68,3 +68,19 @@
 * **数据结构支持**：
 
   * Python 内置模块 `heapq`：用于实现最大堆以支持贪心搜索。
+
+## 开发环境部署
+
+```sh
+# 创建虚拟环境
+python -m venv .venv
+
+# 激活虚拟环境
+# Windows
+.\.venv\Scripts\Activate.ps1
+# macOS/Linux
+source venv/bin/activate
+
+# 安装依赖
+pip install -r requirements-dev.txt
+```

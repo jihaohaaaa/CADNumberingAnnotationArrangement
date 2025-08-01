@@ -7,9 +7,9 @@ from heapq import heappush, heappop
 def is_valid_line(
     line: LineString,
     polygon: Polygon,
-    obstacles: List[BaseGeometry],
+    obstacles: List[Polygon],
     existing_lines: List[LineString],
-    dispel_line: List[BaseGeometry] = None,
+    dispel_line: List[BaseGeometry] = [],
 ) -> bool:
     """
     Check if a line is valid for connection:

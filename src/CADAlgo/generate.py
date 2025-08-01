@@ -1,4 +1,3 @@
-from typing import List, Set, Tuple
 from shapely.geometry import Point, Polygon, LineString, box
 from shapely.geometry.base import BaseGeometry
 from heapq import heappush, heappop
@@ -10,7 +9,7 @@ from CADAlgo.parser import *
 
 def generate_sampled_points(
     polygon: Polygon, samples_per_edge: int = 20
-) -> List[Point]:
+) -> list[Point]:
     """
     Sample points along the edges of a polygon
 
@@ -37,11 +36,11 @@ def generate_sampled_points(
 
 # TODO: use generate_sampled_points to generate sampled points along the polygon boundary
 def generate_connection_lines(
-    points: List[Point],
+    points: list[Point],
     polygon: Polygon,
-    obstacles: List[BaseGeometry],
+    obstacles: list[Polygon],
     samples_per_edge: int = 20,
-) -> List[LineString]:
+) -> list[LineString]:
     """
     Generate connection lines from points to the polygon boundary,
     avoiding obstacles and existing lines.
@@ -59,11 +58,11 @@ def generate_connection_lines(
     sampled_boundary_pts = generate_sampled_points(polygon, samples_per_edge)
 
     # 2. For each point, generate valid connection candidates
-    point_candidates: List[List[Tuple[float, int, LineString]]] = []
+    point_candidates: list[list[tuple[float, int, LineString]]] = []
     counter = 0  # Unique tiebreaker
 
     for pt in points:
-        candidate_lines: List[Tuple[float, int, LineString]] = []
+        candidate_lines: list[tuple[float, int, LineString]] = []
         for boundary_pt in sampled_boundary_pts:
             line = LineString([pt, boundary_pt])
             if not line.crosses(polygon) and not any(
@@ -74,8 +73,8 @@ def generate_connection_lines(
         point_candidates.append(candidate_lines)
 
     # 3. Greedy selection without intersection
-    used_lines: List[LineString] = []
-    used_points: Set[int] = set()
+    used_lines: list[LineString] = []
+    used_points: set[int] = set()
 
     for idx, candidates in enumerate(point_candidates):
         while candidates:
@@ -89,11 +88,11 @@ def generate_connection_lines(
 
 
 def generate_connection_lines_from_point_candidates(
-    candidates: List[PartPointCandidate],
+    candidates: list[PartPointCandidate],
     polygon: Polygon,
-    obstacles: List[BaseGeometry],
+    obstacles: list[Polygon],
     samples_per_edge: int = 20,
-) -> List[LineString]:
+) -> list[LineString]:
     """
     For each PartPointCandidate, attempt to connect one of its points to the polygon boundary
     with a valid, non-intersecting line segment. Only one line per candidate is allowed.
@@ -111,11 +110,11 @@ def generate_connection_lines_from_point_candidates(
     sampled_boundary_pts = generate_sampled_points(polygon, samples_per_edge)
 
     # 2. Attempt to connect one point per candidate
-    used_lines: List[LineString] = []
+    used_lines: list[LineString] = []
     counter = 0  # Unique tie-breaker for heap
 
     for candidate in candidates:
-        candidate_lines: List[Tuple[float, int, LineString]] = []
+        candidate_lines: list[tuple[float, int, LineString]] = []
         for pt in candidate.points:
             for boundary_pt in sampled_boundary_pts:
                 line = LineString([pt, boundary_pt])

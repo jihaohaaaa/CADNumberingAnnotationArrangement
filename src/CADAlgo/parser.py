@@ -1,5 +1,4 @@
 from shapely.geometry import Point, LineString, Polygon
-import json
 
 
 class MyLine:
