@@ -3,6 +3,7 @@ from shapely.geometry import Point, Polygon, LineString, box
 from shapely.geometry.base import BaseGeometry
 from heapq import heappush, heappop
 from CADAlgo.check import is_valid_line
+from CADAlgo.parser import *
 
 # TODO: sampling points along boundary by length instead of pieces
 
@@ -83,5 +84,52 @@ def generate_connection_lines(
                 used_lines.append(line)
                 used_points.add(idx)
                 break
+
+    return used_lines
+
+
+def generate_connection_lines_from_point_candidates(
+    candidates: List[PartPointCandidate],
+    polygon: Polygon,
+    obstacles: List[BaseGeometry],
+    samples_per_edge: int = 20,
+) -> List[LineString]:
+    """
+    For each PartPointCandidate, attempt to connect one of its points to the polygon boundary
+    with a valid, non-intersecting line segment. Only one line per candidate is allowed.
+
+    Args:
+        candidates (List[PartPointCandidate]): List of candidates with multiple points each.
+        polygon (Polygon): The polygon boundary.
+        obstacles (List[BaseGeometry]): List of obstacles to avoid.
+        samples_per_edge (int): Number of samples per edge of the polygon.
+
+    Returns:
+        List[LineString]: List of generated connection lines (one per successful candidate).
+    """
+    # 1. Sample the polygon boundary
+    sampled_boundary_pts = generate_sampled_points(polygon, samples_per_edge)
+
+    # 2. Attempt to connect one point per candidate
+    used_lines: List[LineString] = []
+    counter = 0  # Unique tie-breaker for heap
+
+    for candidate in candidates:
+        candidate_lines: List[Tuple[float, int, LineString]] = []
+        for pt in candidate.points:
+            for boundary_pt in sampled_boundary_pts:
+                line = LineString([pt, boundary_pt])
+                if not line.crosses(polygon) and not any(
+                    line.crosses(ob) for ob in obstacles
+                ):
+                    heappush(candidate_lines, (line.length, counter, line))
+                    counter += 1
+
+        # Select the shortest valid line that doesn't intersect others
+        while candidate_lines:
+            _, _, line = heappop(candidate_lines)
+            if is_valid_line(line, polygon, obstacles, used_lines):
+                used_lines.append(line)
+                break  # Only one line per candidate
 
     return used_lines
