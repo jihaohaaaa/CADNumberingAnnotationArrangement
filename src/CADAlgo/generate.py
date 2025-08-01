@@ -4,18 +4,18 @@ from shapely.geometry.base import BaseGeometry
 from heapq import heappush, heappop
 from CADAlgo.check import is_valid_line
 
-#TODO: sampling points along boundary by length instead of pieces
+# TODO: sampling points along boundary by length instead of pieces
+
 
 def generate_sampled_points(
-    polygon: Polygon,
-    samples_per_edge: int = 20
+    polygon: Polygon, samples_per_edge: int = 20
 ) -> List[Point]:
     """
     Sample points along the edges of a polygon
 
-    Args: 
+    Args:
         polygon (Polygon): The polygon boundary.
-        samples_per_edge (int): Number of samples per edge. 
+        samples_per_edge (int): Number of samples per edge.
 
     Returns:
         List[Point]: List of sampled points along the polygon boundary.
@@ -33,12 +33,13 @@ def generate_sampled_points(
             sampled_boundary_pts.append(Point(x, y))
     return sampled_boundary_pts
 
-#TODO: use generate_sampled_points to generate sampled points along the polygon boundary
+
+# TODO: use generate_sampled_points to generate sampled points along the polygon boundary
 def generate_connection_lines(
     points: List[Point],
     polygon: Polygon,
     obstacles: List[BaseGeometry],
-    samples_per_edge: int = 20
+    samples_per_edge: int = 20,
 ) -> List[LineString]:
     """
     Generate connection lines from points to the polygon boundary,
@@ -49,22 +50,12 @@ def generate_connection_lines(
         polygon (Polygon): The polygon boundary.
         obstacles (List[BaseGeometry]): List of obstacles to avoid.
         samples_per_edge (int): Number of samples per edge of the polygon.
-    
+
     Returns:
         List[LineString]: List of generated connection lines.
     """
     # 1. Sample polygon boundary
-    boundary_coords: List[Tuple[float, float]] = list(polygon.exterior.coords)
-    sampled_boundary_pts: List[Point] = []
-
-    for i in range(len(boundary_coords) - 1):
-        start = Point(boundary_coords[i])
-        end = Point(boundary_coords[i + 1])
-        for j in range(samples_per_edge):
-            f = j / samples_per_edge
-            x = start.x + f * (end.x - start.x)
-            y = start.y + f * (end.y - start.y)
-            sampled_boundary_pts.append(Point(x, y))
+    sampled_boundary_pts = generate_sampled_points(polygon, samples_per_edge)
 
     # 2. For each point, generate valid connection candidates
     point_candidates: List[List[Tuple[float, int, LineString]]] = []
@@ -74,7 +65,9 @@ def generate_connection_lines(
         candidate_lines: List[Tuple[float, int, LineString]] = []
         for boundary_pt in sampled_boundary_pts:
             line = LineString([pt, boundary_pt])
-            if not line.crosses(polygon) and not any(line.crosses(ob) for ob in obstacles):
+            if not line.crosses(polygon) and not any(
+                line.crosses(ob) for ob in obstacles
+            ):
                 heappush(candidate_lines, (line.length, counter, line))
                 counter += 1  # Increment counter for uniqueness
         point_candidates.append(candidate_lines)
@@ -92,4 +85,3 @@ def generate_connection_lines(
                 break
 
     return used_lines
-
