@@ -19,7 +19,7 @@ def plot_schema(schema: Schema):
         poly = box.geometry
         x, y = poly.exterior.xy
         ax.fill(
-            x, y, color="orange", alpha=0.5, label="ObstacleBox" if i == 0 else None
+            x, y, color="orange", alpha=0.5, label="Obstacle Box" if i == 0 else None
         )
 
     # 画屏障线（红色线段）

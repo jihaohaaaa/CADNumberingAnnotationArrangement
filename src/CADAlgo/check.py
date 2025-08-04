@@ -41,12 +41,20 @@ def is_valid_line(
     for dispel_line in dispel_lines:
         if point_approximate_line_string(Point(line.coords[-1]), dispel_line):
             return False
+    # 线段远离其他线段
+    for other in existing_lines:
+        if point_approximate_line_string(Point(line.coords[0]), other):
+            return False
+        if point_approximate_line_string(Point(line.coords[-1]), other):
+            return False
+        if point_approximate_line_string(Point(other.coords[0]), line):
+            return False
+        if point_approximate_line_string(Point(other.coords[-1]), line):
+            return False
     return True
 
 
-def point_approximate_line_string(
-    point: Point, line: LineString, threshold: float = 0.5
-):
+def point_approximate_line_string(point: Point, line: LineString, threshold: float = 3):
     """
     Check if a point is approximately along a line.
 
