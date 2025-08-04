@@ -45,4 +45,4 @@ def plot_schema(schema: Schema):
     by_label = dict(zip(labels, handles))
     ax.legend(by_label.values(), by_label.keys())
 
-    plt.show()
+    return fig, ax

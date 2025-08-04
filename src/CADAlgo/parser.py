@@ -7,6 +7,9 @@ class MyLine:
         self.end = end
         self.geometry = LineString([start, end])
 
+    def __lt__(self, other: "MyLine") -> bool:
+        return self.geometry.length < other.geometry.length
+
 
 class ObstacleBox:
     def __init__(self, vertices: list[tuple[float, float]]):

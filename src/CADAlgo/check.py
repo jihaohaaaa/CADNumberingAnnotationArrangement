@@ -9,7 +9,7 @@ def is_valid_line(
     polygon: Polygon,
     obstacles: List[Polygon],
     existing_lines: List[LineString],
-    dispel_line: List[BaseGeometry] = [],
+    dispel_lines: List[LineString],
 ) -> bool:
     """
     Check if a line is valid for connection:
@@ -22,17 +22,25 @@ def is_valid_line(
         polygon (Polygon): The polygon boundary.
         obstacles (List[BaseGeometry]): List of obstacles to avoid.
         existing_lines (List[LineString]): List of already used lines.
+        dispel_lines (List[LineString]): List of lines to avoid.
 
     Returns:
         bool: True if the line is valid, False otherwise.
     """
 
+    # 不能穿过边界线
     if line.crosses(polygon):
         return False
+    # 不能穿过障碍物
     if any(line.crosses(ob) for ob in obstacles):
         return False
-    if any(line.crosses(l) for l in existing_lines):
+    # 不能与现有的线相交
+    if any(line.intersects(l) for l in existing_lines):
         return False
+    # 终点远离驱散线
+    for dispel_line in dispel_lines:
+        if point_approximate_line_string(Point(line.coords[-1]), dispel_line):
+            return False
     return True
 
 
