@@ -105,13 +105,14 @@ def generate_connection_lines(
     return used_lines
 
 
-# TODO
-# 优化建议, samples_distance 从大往小变化
-# 可以根据外围盒子的周长的100份, 或者外围盒子的周长的目标个数份
+# TODO 优化建议, samples_distance 从大往小变化 可以根据外围盒子的周长的100份, 或者外围盒子的周长的目标个数份
+# TODO 预处理 将 point_candidates line_candidates 排序, 按照几何中心距离包围盒的距离进行排序
 def generate_connection_lines_from_point_candidates(
-    candidates: list[PartPointCandidate],
-    polygon: Polygon,
+    point_candidates: list[PartPointCandidate],
+    line_candidates: list[PartLineCandidate],
+    exterior: Polygon,
     obstacles: list[Polygon],
+    dispel_lines: list[LineString],
     samples_distance: int = 1,
 ) -> list[LineString]:
     """
@@ -128,18 +129,26 @@ def generate_connection_lines_from_point_candidates(
         List[LineString]: List of generated connection lines (one per successful candidate).
     """
     # 1. Sample the polygon boundary
-    sampled_boundary_pts = generate_sampled_points_by_length(polygon, samples_distance)
+    sampled_boundary_pts = generate_sampled_points_by_length(exterior, samples_distance)
 
     # 2. Attempt to connect one point per candidate
     used_lines: list[LineString] = []
     counter = 0  # Unique tie-breaker for heap
 
-    for candidate in candidates:
+    # 3. Convert line candidates to point candidates
+    total_candidates = []
+    total_candidates.extend(point_candidates)
+    from_line_point_candidate = []
+    for point_candidate in line_candidates:
+        from_line_point_candidate.append(point_candidate.to_point_candidate(10))
+    total_candidates.extend(from_line_point_candidate)
+
+    for candidate in total_candidates:
         candidate_lines: list[tuple[float, int, LineString]] = []
         for pt in candidate.points:
             for boundary_pt in sampled_boundary_pts:
                 line = LineString([pt, boundary_pt])
-                if not line.crosses(polygon) and not any(
+                if not line.crosses(exterior) and not any(
                     line.crosses(ob) for ob in obstacles
                 ):
                     heappush(candidate_lines, (line.length, counter, line))
@@ -148,7 +157,13 @@ def generate_connection_lines_from_point_candidates(
         # Select the shortest valid line that doesn't intersect others
         while candidate_lines:
             _, _, line = heappop(candidate_lines)
-            if is_valid_line(line, polygon, obstacles, used_lines, []):
+            if is_valid_line(
+                line,
+                exterior,
+                obstacles,
+                used_lines,
+                dispel_lines,
+            ):
                 used_lines.append(line)
                 break  # Only one line per candidate
 

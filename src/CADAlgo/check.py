@@ -4,12 +4,14 @@ from shapely.geometry.base import BaseGeometry
 from heapq import heappush, heappop
 
 
+# TODO 可以让远离其他线段的逻辑可以变更,越大越不挤在一起
 def is_valid_line(
     line: LineString,
     polygon: Polygon,
     obstacles: List[Polygon],
     existing_lines: List[LineString],
     dispel_lines: List[LineString],
+    distance_threshold: float = 5,
 ) -> bool:
     """
     Check if a line is valid for connection:
@@ -39,22 +41,32 @@ def is_valid_line(
         return False
     # 终点远离驱散线
     for dispel_line in dispel_lines:
-        if point_approximate_line_string(Point(line.coords[-1]), dispel_line):
+        if point_approximate_line_string(
+            Point(line.coords[-1]), dispel_line, distance_threshold
+        ):
             return False
     # 线段远离其他线段
     for other in existing_lines:
-        if point_approximate_line_string(Point(line.coords[0]), other):
+        if point_approximate_line_string(
+            Point(line.coords[0]), other, distance_threshold
+        ):
             return False
-        if point_approximate_line_string(Point(line.coords[-1]), other):
+        if point_approximate_line_string(
+            Point(line.coords[-1]), other, distance_threshold
+        ):
             return False
-        if point_approximate_line_string(Point(other.coords[0]), line):
+        if point_approximate_line_string(
+            Point(other.coords[0]), line, distance_threshold
+        ):
             return False
-        if point_approximate_line_string(Point(other.coords[-1]), line):
+        if point_approximate_line_string(
+            Point(other.coords[-1]), line, distance_threshold
+        ):
             return False
     return True
 
 
-def point_approximate_line_string(point: Point, line: LineString, threshold: float = 3):
+def point_approximate_line_string(point: Point, line: LineString, threshold: float = 5):
     """
     Check if a point is approximately along a line.
 
