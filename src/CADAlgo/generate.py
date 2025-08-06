@@ -105,6 +105,8 @@ def generate_connection_lines(
     return used_lines
 
 
+# TODO 线条需要不垂直于外围边界线, 应该是一个范围的角度内(例如10°至80°).
+# TODO 有些线候选太短, 需要确定确定规则采样. 小于某个值就是当成点(只取中间点), 某个范围内固定步长采样, 超过某个范围就固定个数采样.
 # TODO 优化建议, samples_distance 从大往小变化 可以根据外围盒子的周长的100份, 或者外围盒子的周长的目标个数份
 # TODO 预处理 将 point_candidates line_candidates 排序, 按照几何中心距离包围盒的距离进行排序
 def generate_connection_lines_from_point_candidates(
