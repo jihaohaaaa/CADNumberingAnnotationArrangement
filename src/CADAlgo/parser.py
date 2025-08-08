@@ -70,6 +70,16 @@ class PartLineCandidate:
         self.lines = lines
 
     def to_point_candidate(self, step: float):
+        """
+        Convert LineCandidate to PointCandidate by sample lines to points
+
+        Args:
+            step (float): `step` is the sampling distance interval.
+
+        Returns:
+            PartPointCandidate: A new PartPointCandidate instance.
+            Represent the sampled points from the lines.
+        """
         line_string_list: list[LineString] = [line.geometry for line in self.lines]
         points = interpolate_whole_path(line_string_list, step)
         return PartPointCandidate(self.part_name, points)

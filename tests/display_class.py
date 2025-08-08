@@ -57,44 +57,41 @@ def plot_schema(schema: Schema):
     return fig, ax
 
 
-def plot_geometries(
-    geoms: list[BaseGeometry], figsize=(8, 6), color="blue", show_axes=True
-):
-    fig, ax = plt.subplots(figsize=figsize)
+def plot_geometries(geoms: list[BaseGeometry], fig=None, ax=None):
+    if fig is None or ax is None:
+        fig, ax = plt.subplots(figsize=(8, 6))
 
     for geom in geoms:
         if geom.is_empty:
             continue
         if isinstance(geom, Point):
-            ax.plot(geom.x, geom.y, "o", color=color)
+            ax.plot(geom.x, geom.y, "o", color="blue")
         elif isinstance(geom, LineString):
             x, y = geom.xy
-            ax.plot(x, y, "-", color=color)
+            ax.plot(x, y, "-", color="blue")
         elif isinstance(geom, Polygon):
             x, y = geom.exterior.xy
-            ax.plot(x, y, "-", color=color)
+            ax.plot(x, y, "-", color="blue")
             # 绘制内洞
             for interior in geom.interiors:
                 x, y = interior.xy
-                ax.plot(x, y, "--", color=color)
+                ax.plot(x, y, "--", color="blue")
         elif isinstance(geom, MultiPoint):
             for pt in geom.geoms:
-                ax.plot(pt.x, pt.y, "o", color=color)
+                ax.plot(pt.x, pt.y, "o", color="blue")
         elif isinstance(geom, MultiLineString):
             for line in geom.geoms:
                 x, y = line.xy
-                ax.plot(x, y, "-", color=color)
+                ax.plot(x, y, "-", color="blue")
         elif isinstance(geom, MultiPolygon):
             for poly in geom.geoms:
                 x, y = poly.exterior.xy
-                ax.plot(x, y, "-", color=color)
+                ax.plot(x, y, "-", color="blue")
                 for interior in poly.interiors:
                     x, y = interior.xy
-                    ax.plot(x, y, "--", color=color)
+                    ax.plot(x, y, "--", color="blue")
         else:
             raise TypeError(f"Unsupported geometry type: {type(geom)}")
 
-    if not show_axes:
-        ax.axis("off")
     ax.set_aspect("equal", adjustable="box")
     return fig, ax
