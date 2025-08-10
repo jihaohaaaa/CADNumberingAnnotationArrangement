@@ -79,7 +79,7 @@ python -m venv .venv
 # Windows
 .\.venv\Scripts\Activate.ps1
 # macOS/Linux
-source venv/bin/activate
+source .venv/bin/activate
 
 # 安装依赖
 pip install -r requirements-dev.txt
