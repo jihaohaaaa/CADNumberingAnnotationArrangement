@@ -46,8 +46,8 @@ def is_valid_line(
     # 检查角度是否在水平或竖直范围内
     angle = get_line_angle(line)
 
-    # 排除水平（小于2°或大于178°）和竖直（88° 至 92°）线段
-    if abs(angle) <= 2 or 88 <= abs(angle) <= 92 or abs(angle) >= 178:
+    # 排除水平（小于5°或大于175°）和竖直（85° 至 95°）线段
+    if abs(angle) <= 5 or 85 <= abs(angle) <= 95 or abs(angle) >= 175:
         return False
 
     # 不能穿过边界线
