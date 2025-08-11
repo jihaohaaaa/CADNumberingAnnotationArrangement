@@ -2,6 +2,7 @@ from typing import List, Set, Tuple
 from shapely.geometry import Point, Polygon, LineString, box, GeometryCollection
 from shapely.geometry.base import BaseGeometry
 from heapq import heappush, heappop
+import math
 
 
 # TODO 可以让远离其他线段的逻辑可以变更,越大越不挤在一起
@@ -18,6 +19,7 @@ def is_valid_line(
     - Does not cross the polygon boundary
     - Does not cross any obstacles
     - Does not intersect with existing lines
+    - Is not horizontal or vertical
 
     Args:
         line (LineString): The line to be checked.
@@ -25,10 +27,28 @@ def is_valid_line(
         obstacles (List[BaseGeometry]): List of obstacles to avoid.
         existing_lines (List[LineString]): List of already used lines.
         dispel_lines (List[LineString]): List of lines to avoid.
+        distance_threshold (float): Distance threshold for line avoidance.
 
     Returns:
         bool: True if the line is valid, False otherwise.
     """
+
+    # 获取角度
+    def get_line_angle(line: LineString) -> float:
+        """Calculate the angle of a line in degrees relative to the horizontal."""
+        start, end = line.coords[0], line.coords[-1]
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        angle_rad = math.atan2(dy, dx)
+        angle_deg = math.degrees(angle_rad)
+        return angle_deg
+
+    # 检查角度是否在水平或竖直范围内
+    angle = get_line_angle(line)
+
+    # 排除水平（小于2°或大于178°）和竖直（88° 至 92°）线段
+    if abs(angle) <= 2 or 88 <= abs(angle) <= 92 or abs(angle) >= 178:
+        return False
 
     # 不能穿过边界线
     if line.crosses(polygon):
@@ -74,12 +94,11 @@ def point_approximate_line_string(point: Point, line: LineString, threshold: flo
         point (Point): The point to check.
         line (LineString): The line to check against.
         threshold (float, optional): The maximum distance for the
-        point to be considered along the line.. Defaults to 0.5.
+        point to be considered along the line. Defaults to 5.
 
     Returns:
         bool: True if the point is approximately along the line, False otherwise.
     """
-
     if point.distance(line) <= threshold:
         return True
     else:

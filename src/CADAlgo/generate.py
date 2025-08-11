@@ -228,7 +228,7 @@ def generate_connection_lines_from_point_candidates_backtracking(
             return
 
         # 尝试当前候选的每一条线
-        placed = False
+        placed = False  # 这个变量冗余了
         for line in all_candidate_lines[idx]:
             if is_valid_line(line, exterior, obstacles, used_lines, dispel_lines):
                 used_lines.append(line)
