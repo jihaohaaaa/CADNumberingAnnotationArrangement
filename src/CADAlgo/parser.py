@@ -44,10 +44,24 @@ def interpolate_whole_path(lines: list[LineString], step: float) -> list[Point]:
 
 @total_ordering
 class MyLine:
-    def __init__(self, start: tuple[float, float], end: tuple[float, float]):
+    start: tuple[float, float]
+    end: tuple[float, float]
+    geometry: LineString
+
+    priority_level: (
+        int  # 候选线的优先级, 数值越小优先级越高, 1为最高优先级, 正整数, 默认1
+    )
+
+    def __init__(
+        self,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        priority_level: int = 1,
+    ):
         self.start = start
         self.end = end
         self.geometry = LineString([start, end])
+        self.priority_level = priority_level
 
     def __lt__(self, other: "MyLine") -> bool:
         return self.geometry.length < other.geometry.length
@@ -86,9 +100,16 @@ class PartLineCandidate:
 
 
 class PartPointCandidate:
-    def __init__(self, part_name: str, points: list[Point]):
+    part_name: str
+    points: list[Point]
+
+    # 候选点的优先级, 数值越小优先级越高, 1为最高优先级, 正整数, 默认1
+    priority_level: int
+
+    def __init__(self, part_name: str, points: list[Point], priority_level: int = 1):
         self.part_name = part_name
         self.points = points
+        self.priority_level = priority_level
 
 
 class Schema:
