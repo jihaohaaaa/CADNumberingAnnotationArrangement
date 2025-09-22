@@ -64,12 +64,17 @@ class MyLine:
         self.priority_level = priority_level
 
     def __lt__(self, other: "MyLine") -> bool:
+        # Compare by priority first (lower number = higher priority)
+        if self.priority_level != other.priority_level:
+            return self.priority_level < other.priority_level
+        # If priorities are equal, compare by length (shorter is better)
         return self.geometry.length < other.geometry.length
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MyLine):
             return NotImplemented
-        return self.geometry.length == other.geometry.length
+        return (self.priority_level == other.priority_level and 
+                self.geometry.length == other.geometry.length)
 
 
 class ObstacleBox:
