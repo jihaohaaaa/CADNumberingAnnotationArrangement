@@ -1,0 +1,1138 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Line Candidates Visualizer — All Geometry</title>
+  <style>
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+      /* 不让窗口本身出现滚动条 */
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft Yahei";
+      margin: 0;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      /* 明确指定占满视口 */
+    }
+
+    h2 {
+      margin: 0 0 8px;
+    }
+
+    #container {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      flex: 1 1 auto;
+      min-height: 0;
+      /* 允许内部子元素计算高度并滚动 */
+      overflow: hidden;
+      /* 容器自身不产生滚动条 */
+    }
+
+    #canvasWrap {
+      border: 1px solid #ddd;
+      position: relative;
+      overflow: auto;
+      /* 只在左侧区域出现滚动条 */
+      height: 100%;
+      flex: 1 1 auto;
+      /* 随容器拉伸，优先占据剩余宽度 */
+      min-width: 0;
+      /* 允许在狭窄视口中收缩，避免页面产生水平滚动条 */
+    }
+
+    canvas {
+      background: #fff;
+      display: block;
+      /* 初始尺寸由脚本设置，CSS 层面允许它跟随容器伸展（缩放的是显示像素，不改 canvas.width/height 内部分辨率） */
+    }
+
+    #legend {
+      width: 360px;
+      height: 100%;
+      overflow: auto;
+      /* 只在右侧 Legend 出滚动条 */
+      padding: 10px;
+      border: 1px solid #eee;
+      flex: 0 0 360px;
+      /* 固定宽度，不参与压缩 */
+      scroll-behavior: smooth;
+    }
+
+    .part-row {
+      margin-bottom: 10px;
+    }
+
+    .color-swatch {
+      width: 28px;
+      height: 14px;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 8px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .legend-title {
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .legend-section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #666;
+      margin: 14px 0 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 6px 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      transform: translate(10px, 10px);
+      white-space: nowrap;
+      display: none;
+      z-index: 10;
+    }
+
+    .controls {
+      margin: 0 0 8px;
+    }
+
+    .layer-toggle {
+      margin-right: 8px;
+    }
+
+    .part-row {
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      /* 可点击 */
+      transition: background 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .part-row:hover {
+      background: #fafafa;
+    }
+
+    .part-row.active {
+      background: #eef6ff;
+      box-shadow: inset 0 0 0 1px #b6daff;
+    }
+
+    .part-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .part-name {
+      font-weight: 600;
+    }
+
+    .part-meta {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .chip {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: #f2f2f2;
+      font-size: 12px;
+      margin-left: 6px;
+    }
+
+    .row-line {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .swatch {
+      width: 28px;
+      height: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .details-card {
+      margin-bottom: 12px;
+      padding: 10px;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      background: #fafafa;
+      font-size: 12px;
+      color: #333;
+    }
+
+    .details-card .title {
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .details-card .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .sublist {
+      margin: 8px 0 0 8px;
+      padding-left: 10px;
+      border-left: 2px solid #eee;
+    }
+
+    .subitem {
+      padding: 4px 6px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .subitem:hover {
+      background: #f5f5f5;
+    }
+
+    .subitem.active {
+      background: #eef6ff;
+      box-shadow: inset 0 0 0 1px #b6daff;
+    }
+
+    .sep {
+      height: 1px;
+      background: #f0f0f0;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+
+<body>
+  <h2 id="headerTitle" title="数据概览：动态显示当前 JSON 的名称与对象数量">未加载数据 — 请选择或拖拽 JSON 文件</h2>
+  <div class="controls">
+    <label class="layer-toggle"><input type="checkbox" id="showObstacles" checked /> obstacle_box</label>
+    <label class="layer-toggle"><input type="checkbox" id="showBarriers" checked /> barrier_line</label>
+    <label class="layer-toggle"><input type="checkbox" id="showTargets" checked /> target_exterior</label>
+    <label class="layer-toggle"><input type="checkbox" id="showParts" checked /> part candidates</label>
+    <span style="margin-left:12px"></span>
+    <label class="layer-toggle">
+      选择 JSON: <input type="file" id="jsonFile" accept=".json,application/json" />
+    </label>
+  </div>
+  <div id="container">
+    <div id="canvasWrap">
+      <canvas id="c" width="800" height="600"></canvas>
+      <div id="tooltip" class="tooltip"></div>
+    </div>
+    <div id="legend">
+      <div class="legend-title">Legend</div>
+      <div id="details" class="details-card"></div>
+      <div id="legendContent"></div>
+    </div>
+    <div id="dragOverlay"
+      style="display:none;position:fixed;z-index:9999;top:0;left:0;width:100vw;height:100vh;background:rgba(60,120,200,0.18);backdrop-filter:blur(1.5px);color:#235;font-size:28px;font-weight:600;align-items:center;justify-content:center;pointer-events:none;transition:opacity 0.18s;">
+      <div style="width:100%;text-align:center;margin-top:20vh;letter-spacing:1px;">松开以导入 JSON 文件</div>
+    </div>
+
+    <script>
+      // 拖拽支持：全局拖拽提示
+      const dragOverlay = document.getElementById('dragOverlay');
+      let dragCounter = 0;
+      function showOverlay() { dragOverlay.style.display = 'flex'; dragOverlay.style.opacity = '1'; }
+      function hideOverlay() { dragOverlay.style.opacity = '0'; setTimeout(() => { dragOverlay.style.display = 'none'; }, 180); }
+      function handleDropFile(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        dragCounter = 0; hideOverlay();
+        const files = ev.dataTransfer.files;
+        if (!files || !files.length) return;
+        const f = files[0];
+        if (!/\.json$/i.test(f.name)) {
+          alert('请拖入 .json 文件');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const json = JSON.parse(String(reader.result));
+            setupFromData(json);
+          } catch (e) {
+            alert('JSON 解析失败：' + e.message);
+          }
+        };
+        reader.onerror = () => alert('文件读取失败');
+        reader.readAsText(f, 'utf-8');
+      }
+      function preventDefault(ev) { ev.preventDefault(); ev.stopPropagation(); }
+      document.body.addEventListener('dragover', ev => { preventDefault(ev); });
+      document.body.addEventListener('dragenter', ev => { preventDefault(ev); dragCounter++; showOverlay(); });
+      document.body.addEventListener('dragleave', ev => { preventDefault(ev); dragCounter--; if (dragCounter <= 0) { hideOverlay(); } });
+      document.body.addEventListener('drop', handleDropFile);
+    </script>
+  </div>
+
+  <script>
+    // ------------------------------
+    // Canvas 初始化 & 动态数据装载
+    // ------------------------------
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const canvasWrap = document.getElementById('canvasWrap');
+    const tooltip = document.getElementById('tooltip');
+    const legendContent = document.getElementById('legendContent');
+    const headerTitle = document.getElementById('headerTitle');
+    const legendRoot = document.getElementById('legend');
+    // click/dblclick 协调：延迟单击以区分双击
+    let clickTimer = null;
+    const CLICK_DELAY = 220; // ms
+
+    // 视图与交互状态（可在加载新 JSON 时复位）
+    let isPanning = false;
+    let panStartX = 0, panStartY = 0;
+    let panX = 0, panY = 0, startPanX = 0, startPanY = 0;
+    // 缩放：基于 CSS 大小缩放，保持宽高等比例
+    let currentScale = 1;        // 叠加缩放（相对于 baseCssScale）
+    let baseCssScale = 1;        // 让原始 canvas 尺寸在 wrapper 中按不失真铺满的基准比例
+
+    // 数据与映射（随数据重算）
+    let data = null;
+    const padding = 20;
+    let minX = 0, minY = 0, maxX = 0, maxY = 0;
+    let baseScale = 1, offsetX = 0, offsetY = 0;
+    let parts = [], pointsParts = [];
+    let partMeta = [];
+    let hoveredPartId = null; // 当前悬浮的 part_id，用于整体高亮
+    let selectedPartId = null; // 点击选择的 part_id，类似锁定 hover（仅针对整件）
+    let hoveredFocus = null;   // { type: 'part'|'line'|'point', part_id, lineIdx?, pointIdx? }
+    let selectedFocus = null;  // 同上，表示锁定选中具体线/点
+    // 为避免 legend 在 hover 时被频繁重建，影响 click/dblclick 触发，这里提供一次性抑制 legend 重建的开关
+    let suppressLegend = false;
+    // 在 legend 鼠标按下到抬起期间，不重建 legend，避免 click 被中途替换 DOM 导致失效
+    let isLegendMouseDown = false;
+
+    function toCanvasX(x) { return x * baseScale + offsetX; }
+    function toCanvasY(y) { return canvas.height - (y * baseScale + offsetY); }
+
+    // hash -> hue
+    function hueFromString(str) { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return Math.abs(h) % 360; }
+    function colorForWeight(hue, w, minW, maxW) { const t = (w - minW) / ((maxW - minW) || 1); const sat = 60 + Math.round(30 * t); const light = 60 - Math.round(30 * t); return `hsl(${hue} ${sat}% ${light}%)`; }
+
+    function resetView() {
+      // 重置缩放与平移
+      currentScale = 1;
+      panX = 0; panY = 0;
+      // 用基准比例设置 CSS 大小，保持等比
+      setCssSize(baseCssScale * currentScale);
+      canvas.style.transform = 'translate(0px, 0px)';
+      canvasWrap.scrollLeft = 0;
+      canvasWrap.scrollTop = 0;
+    }
+
+    function computeBaseCssScale() {
+      // 让 canvas.width/height 在 wrapper 内完整显示且不变形
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      const availW = Math.max(50, wrapRect.width - 20);
+      const availH = Math.max(50, wrapRect.height - 20);
+      const sx = availW / canvas.width;
+      const sy = availH / canvas.height;
+      baseCssScale = Math.max(0.1, Math.min(sx, sy));
+    }
+
+    function setCssSize(scale) {
+      const w = Math.round(canvas.width * scale);
+      const h = Math.round(canvas.height * scale);
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+    }
+
+    function getCssScale() {
+      const rect = canvas.getBoundingClientRect();
+      return rect.width / canvas.width;
+    }
+
+    function safeId(val) {
+      return String(val ?? 'NA').replace(/[^a-zA-Z0-9_-]+/g, '_');
+    }
+
+    // 将 subject 聚焦到视野中心（不改变缩放），subject: {type:'part'|'line'|'point', part_id, lineIdx?, pointIdx?}
+    function focusCanvasOn(subject) {
+      if (!subject) return;
+      const cssScale = getCssScale();
+      let targetCanvasX = null, targetCanvasY = null;
+      const toCss = (cx) => cx * cssScale;
+      const commitCenter = (cxCanvas, cyCanvas) => {
+        const cxCss = toCss(cxCanvas);
+        const cyCss = toCss(cyCanvas);
+        const contentW = canvas.width * cssScale;
+        const contentH = canvas.height * cssScale;
+        const wrapW = canvasWrap.clientWidth;
+        const wrapH = canvasWrap.clientHeight;
+        const centerX = wrapW / 2;
+        const centerY = wrapH / 2;
+        if (contentW > wrapW) {
+          const desired = cxCss - centerX;
+          const maxScroll = Math.max(0, contentW - wrapW);
+          canvasWrap.scrollLeft = Math.max(0, Math.min(desired, maxScroll));
+          panX = 0;
+        } else {
+          canvasWrap.scrollLeft = 0;
+          panX = Math.round(centerX - cxCss);
+        }
+        if (contentH > wrapH) {
+          const desired = cyCss - centerY;
+          const maxScroll = Math.max(0, contentH - wrapH);
+          canvasWrap.scrollTop = Math.max(0, Math.min(desired, maxScroll));
+          panY = 0;
+        } else {
+          canvasWrap.scrollTop = 0;
+          panY = Math.round(centerY - cyCss);
+        }
+        applyPanTransform();
+      };
+
+      if (subject.type === 'line') {
+        const p = parts.find(pp => pp.part_id === subject.part_id);
+        if (!p || !p.lines || !p.lines[subject.lineIdx]) return;
+        const s = p.lines[subject.lineIdx].lineSegment;
+        const x1 = toCanvasX(s.x1), y1 = toCanvasY(s.y1);
+        const x2 = toCanvasX(s.x2), y2 = toCanvasY(s.y2);
+        commitCenter((x1 + x2) / 2, (y1 + y2) / 2);
+      } else if (subject.type === 'point') {
+        const p = pointsParts.find(pp => pp.part_id === subject.part_id);
+        if (!p || !p.points || !p.points[subject.pointIdx]) return;
+        const pt = p.points[subject.pointIdx];
+        commitCenter(toCanvasX(pt.coordinate.x), toCanvasY(pt.coordinate.y));
+      } else if (subject.type === 'part') {
+        // 计算该部件的包围盒中心
+        let minCx = Infinity, minCy = Infinity, maxCx = -Infinity, maxCy = -Infinity;
+        const lp = parts.find(pp => pp.part_id === subject.part_id);
+        if (lp && lp.lines) {
+          for (const it of lp.lines) {
+            const s = it.lineSegment;
+            minCx = Math.min(minCx, toCanvasX(s.x1), toCanvasX(s.x2));
+            maxCx = Math.max(maxCx, toCanvasX(s.x1), toCanvasX(s.x2));
+            minCy = Math.min(minCy, toCanvasY(s.y1), toCanvasY(s.y2));
+            maxCy = Math.max(maxCy, toCanvasY(s.y1), toCanvasY(s.y2));
+          }
+        }
+        const pp = pointsParts.find(pp => pp.part_id === subject.part_id);
+        if (pp && pp.points) {
+          for (const pt of pp.points) {
+            const cx = toCanvasX(pt.coordinate.x);
+            const cy = toCanvasY(pt.coordinate.y);
+            minCx = Math.min(minCx, cx); maxCx = Math.max(maxCx, cx);
+            minCy = Math.min(minCy, cy); maxCy = Math.max(maxCy, cy);
+          }
+        }
+        if (isFinite(minCx) && isFinite(minCy) && isFinite(maxCx) && isFinite(maxCy)) {
+          commitCenter((minCx + maxCx) / 2, (minCy + maxCy) / 2);
+        }
+      }
+    }
+
+    function ensureLegendVisible(subject) {
+      if (!subject) return;
+      let elId = null;
+      if (subject.type === 'line') elId = `legend-part-${safeId(subject.part_id)}-line-${subject.lineIdx}`;
+      else if (subject.type === 'point') elId = `legend-part-${safeId(subject.part_id)}-point-${subject.pointIdx}`;
+      else if (subject.type === 'part') elId = `legend-part-${safeId(subject.part_id)}`;
+      const el = elId ? document.getElementById(elId) : null;
+      if (el) {
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
+
+    function setupFromData(newData) {
+      data = newData || {};
+      // 计算边界
+      minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+      const includePoint = (x, y) => { if (x == null || y == null || isNaN(x) || isNaN(y)) return; minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); };
+
+      if (Array.isArray(data.obstacle_box)) {
+        for (const box of data.obstacle_box) {
+          ['a', 'b', 'c', 'd'].forEach(k => { if (box && box[k]) includePoint(box[k].x, box[k].y); });
+        }
+      }
+      if (Array.isArray(data.barrier_line)) {
+        for (const l of data.barrier_line) includePoint(l.x1, l.y1), includePoint(l.x2, l.y2);
+      }
+      if (Array.isArray(data.target_exterior)) {
+        for (const p of data.target_exterior) includePoint(p.x, p.y);
+      }
+      if (data.part) {
+        if (Array.isArray(data.part.line_candidates)) {
+          for (const p of data.part.line_candidates) {
+            for (const item of p.lines || []) includePoint(item.lineSegment.x1, item.lineSegment.y1), includePoint(item.lineSegment.x2, item.lineSegment.y2);
+          }
+        }
+        if (Array.isArray(data.part.point_candidates)) {
+          for (const p of data.part.point_candidates) {
+            for (const pt of p.points || []) includePoint(pt.coordinate.x, pt.coordinate.y);
+          }
+        }
+      }
+      if (!isFinite(minX)) { minX = 0; minY = 0; maxX = canvas.width; maxY = canvas.height; }
+
+      const dataWidth = Math.max(1, maxX - minX);
+      const dataHeight = Math.max(1, maxY - minY);
+      const baseScaleX = (canvas.width - padding * 2) / dataWidth;
+      const baseScaleY = (canvas.height - padding * 2) / dataHeight;
+      baseScale = Math.min(baseScaleX, baseScaleY);
+      offsetX = padding - minX * baseScale + ((canvas.width - padding * 2) - dataWidth * baseScale) / 2;
+      offsetY = padding - minY * baseScale + ((canvas.height - padding * 2) - dataHeight * baseScale) / 2;
+
+      // 衍生: parts/pointsParts
+      parts = (data.part && Array.isArray(data.part.line_candidates)) ? data.part.line_candidates.map(p => {
+        const weights = (p.lines || []).map(l => l.weight);
+        const minW = weights.length ? Math.min(...weights) : 0;
+        const maxW = weights.length ? Math.max(...weights) : 0;
+        return { ...p, minW, maxW, hue: hueFromString((p.part_name || '') + (p.part_id ?? '')) };
+      }) : [];
+      pointsParts = (data.part && Array.isArray(data.part.point_candidates)) ? data.part.point_candidates.map(p => {
+        const ws = (p.points || []).map(pt => pt.weight);
+        const minW = ws.length ? Math.min(...ws) : 0;
+        const maxW = ws.length ? Math.max(...ws) : 0;
+        return { ...p, minW, maxW, hue: hueFromString((p.part_name || '') + (p.part_id ?? '')) };
+      }) : [];
+
+      // 合并 line/point 两类，按 part_id 生成元信息
+      const map = new Map();
+      const addMeta = (p, type) => {
+        const id = p.part_id ?? (p.part_name || '');
+        if (!map.has(id)) map.set(id, { part_id: p.part_id, part_name: p.part_name || '', hue: p.hue, lineCount: 0, pointCount: 0, minW: Infinity, maxW: -Infinity });
+        const m = map.get(id);
+        m.hue = p.hue; // keep last
+        if (type === 'line') {
+          const cnt = (p.lines || []).length;
+          m.lineCount += cnt;
+          if (isFinite(p.minW)) m.minW = Math.min(m.minW, p.minW);
+          if (isFinite(p.maxW)) m.maxW = Math.max(m.maxW, p.maxW);
+        } else if (type === 'point') {
+          const cnt = (p.points || []).length;
+          m.pointCount += cnt;
+          if (isFinite(p.minW)) m.minW = Math.min(m.minW, p.minW);
+          if (isFinite(p.maxW)) m.maxW = Math.max(m.maxW, p.maxW);
+        }
+      };
+      for (const p of parts) addMeta(p, 'line');
+      for (const p of pointsParts) addMeta(p, 'point');
+      partMeta = Array.from(map.values()).map(m => ({ ...m, minW: isFinite(m.minW) ? m.minW : 0, maxW: isFinite(m.maxW) ? m.maxW : 0 }));
+
+      // 重新计算基准 CSS 缩放，并复位视图
+      computeBaseCssScale();
+      resetView();
+      render();
+    }
+
+    function updateHeader() {
+      if (!headerTitle) return;
+      if (!data) {
+        headerTitle.textContent = '未加载数据 — 请选择或拖拽 JSON 文件';
+        return;
+      }
+      const schemaName = (typeof data?.schema_name === 'string') ? data.schema_name : '';
+      const numBarriers = Array.isArray(data?.barrier_line) ? data.barrier_line.length : 0;
+      const numBoxes = Array.isArray(data?.obstacle_box) ? data.obstacle_box.length : 0;
+      const numTargetPts = Array.isArray(data?.target_exterior) ? data.target_exterior.length : 0;
+      // 统计 parts：按 part_id 聚合
+      const partIds = new Set();
+      if (data?.part?.line_candidates) for (const p of data.part.line_candidates) partIds.add(p.part_id ?? p.part_name ?? '');
+      if (data?.part?.point_candidates) for (const p of data.part.point_candidates) partIds.add(p.part_id ?? p.part_name ?? '');
+      const numParts = partIds.size;
+      const partsText = `parts: ${numParts}`;
+      const targetText = `target_exterior: ${numTargetPts > 0 ? '1' : '0'}（points: ${numTargetPts}）`;
+      headerTitle.textContent = `${schemaName || '数据'} — ${partsText} · obstacle_box: ${numBoxes} · barrier_line: ${numBarriers} · ${targetText}`;
+    }
+
+    // Draw functions
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // 无数据时提示选择文件
+      if (!data) {
+        legendContent.innerHTML = '<div>暂无数据</div>';
+        ctx.save();
+        ctx.fillStyle = '#666';
+        ctx.font = '16px system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('选择 JSON 文件或者拖动文件到此处', canvas.width / 2, canvas.height / 2);
+        ctx.restore();
+        return;
+      }
+      updateHeader();
+      // barrier lines (red dashed)
+      if (document.getElementById('showBarriers').checked && Array.isArray(data.barrier_line)) {
+        ctx.save(); ctx.setLineDash([6, 4]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(200,30,30,0.9)';
+        for (const b of data.barrier_line) { const x1 = toCanvasX(b.x1), y1 = toCanvasY(b.y1), x2 = toCanvasX(b.x2), y2 = toCanvasY(b.y2); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+        ctx.restore();
+      }
+      // obstacle boxes (filled translucent gray)
+      if (document.getElementById('showObstacles').checked && Array.isArray(data.obstacle_box)) {
+        ctx.save(); ctx.fillStyle = 'rgba(100,100,100,0.12)'; ctx.strokeStyle = 'rgba(80,80,80,0.9)'; ctx.lineWidth = 1.5;
+        for (const box of data.obstacle_box) { const pts = ['a', 'b', 'c', 'd'].map(k => box[k]).filter(Boolean); if (!pts.length) continue; ctx.beginPath(); ctx.moveTo(toCanvasX(pts[0].x), toCanvasY(pts[0].y)); for (let i = 1; i < pts.length; i++) ctx.lineTo(toCanvasX(pts[i].x), toCanvasY(pts[i].y)); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+        ctx.restore();
+      }
+      // target exterior (green translucent polygon)
+      if (document.getElementById('showTargets').checked && Array.isArray(data.target_exterior) && data.target_exterior.length) {
+        const pts = data.target_exterior.map(p => ({ x: toCanvasX(p.x), y: toCanvasY(p.y) }));
+        if (pts.length > 1) { ctx.save(); ctx.fillStyle = 'rgba(40,160,60,0.12)'; ctx.strokeStyle = 'rgba(40,160,60,0.9)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); }
+      }
+      // part lines（两轮：先整体绘制并视情况变暗，再对活动对象（线/整件）加强绘制）
+      if (document.getElementById('showParts').checked) {
+        const activeItem = selectedFocus || hoveredFocus || null;
+        const activeId = selectedPartId != null ? selectedPartId : (activeItem ? activeItem.part_id : (hoveredPartId ?? null));
+        const drawLine = (p, item, strong = false) => {
+          const s = item.lineSegment; const x1 = toCanvasX(s.x1), y1 = toCanvasY(s.y1), x2 = toCanvasX(s.x2), y2 = toCanvasY(s.y2);
+          const col = colorForWeight(p.hue, item.weight, p.minW, p.maxW);
+          const t = (item.weight - p.minW) / ((p.maxW - p.minW) || 1);
+          ctx.strokeStyle = strong ? '#000' : col;
+          const w = 1 + 4 * t;
+          ctx.lineWidth = strong ? Math.max(2.5, w + 1) : w;
+          ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          // end caps
+          ctx.beginPath(); ctx.fillStyle = strong ? '#000' : col; ctx.arc(x1, y1, (ctx.lineWidth / 2), 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x2, y2, (ctx.lineWidth / 2), 0, Math.PI * 2); ctx.fill();
+        };
+        // 第一轮：全部正常色（若有活动对象/活动部件，则降低整体透明度；但跳过活动部件（仅在没有活动具体线时）或活动线本身，留给第二轮加强）
+        const dimOthers = (activeItem != null) || (activeId != null);
+        ctx.save(); if (dimOthers) ctx.globalAlpha = 0.35;
+        for (const p of parts) {
+          const lines = p.lines || [];
+          const isActivePart = (activeItem == null) && (activeId != null) && (p.part_id === activeId);
+          for (let i = 0; i < lines.length; i++) {
+            const item = lines[i];
+            const isActiveLine = activeItem && activeItem.type === 'line' && p.part_id === activeItem.part_id && i === activeItem.lineIdx;
+            if (isActivePart || isActiveLine) continue; // 第二轮加强绘制
+            drawLine(p, item, false);
+          }
+        }
+        ctx.restore();
+        // 第二轮：若有活动线，单独加强；否则若有活动部件，整个部件加强
+        if (activeItem && activeItem.type === 'line') {
+          const p = parts.find(pp => pp.part_id === activeItem.part_id);
+          if (p && p.lines && p.lines[activeItem.lineIdx]) drawLine(p, p.lines[activeItem.lineIdx], true);
+        } else if (activeId != null) {
+          for (const p of parts) { if (p.part_id !== activeId) continue; for (const item of (p.lines || [])) drawLine(p, item, true); }
+        }
+      }
+      // part points（与线相同策略：其他弱化，当前 part 加强）
+      if (document.getElementById('showParts').checked) {
+        const activeItem = selectedFocus || hoveredFocus || null;
+        const activeId = selectedPartId != null ? selectedPartId : (activeItem ? activeItem.part_id : (hoveredPartId ?? null));
+        const drawPoint = (p, pt, strong = false) => {
+          const cx = toCanvasX(pt.coordinate.x), cy = toCanvasY(pt.coordinate.y);
+          const col = colorForWeight(p.hue, pt.weight, p.minW, p.maxW);
+          const r = (4 + ((pt.weight - p.minW) / ((p.maxW - p.minW) || 1)) * 4) * (strong ? 1.15 : 1);
+          ctx.beginPath(); ctx.fillStyle = strong ? '#000' : col; ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.strokeStyle = strong ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.6)'; ctx.lineWidth = strong ? 1.5 : 1; ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+        };
+        const dimOthers = (activeItem != null) || (activeId != null);
+        ctx.save(); if (dimOthers) ctx.globalAlpha = 0.35;
+        for (const p of pointsParts) {
+          const pts = p.points || [];
+          const isActivePart = (activeItem == null) && (activeId != null) && (p.part_id === activeId);
+          for (let i = 0; i < pts.length; i++) {
+            const pt = pts[i];
+            const isActivePoint = activeItem && activeItem.type === 'point' && p.part_id === activeItem.part_id && i === activeItem.pointIdx;
+            if (isActivePart || isActivePoint) continue;
+            drawPoint(p, pt, false);
+          }
+        }
+        ctx.restore();
+        if (activeItem && activeItem.type === 'point') {
+          const p = pointsParts.find(pp => pp.part_id === activeItem.part_id);
+          if (p && p.points && p.points[activeItem.pointIdx]) drawPoint(p, p.points[activeItem.pointIdx], true);
+        } else if (activeId != null) {
+          for (const p of pointsParts) { if (p.part_id !== activeId) continue; for (const pt of p.points || []) drawPoint(p, pt, true); }
+        }
+      }
+      if (!suppressLegend && !isLegendMouseDown) drawLegend();
+      updateDetailsPanel();
+    }
+
+    function drawLegend() {
+      legendContent.innerHTML = '';
+      // Summary counts
+      const countBarriers = Array.isArray(data?.barrier_line) ? data.barrier_line.length : 0;
+      const countBoxes = Array.isArray(data?.obstacle_box) ? data.obstacle_box.length : 0;
+      const countTargetPoints = Array.isArray(data?.target_exterior) ? data.target_exterior.length : 0;
+      const countTargetPolys = countTargetPoints > 0 ? 1 : 0; // 当前 schema 为单一多边形（用点数组表示）
+      const countParts = Array.isArray(partMeta) ? partMeta.length : 0;
+
+      const countsCard = document.createElement('div');
+      countsCard.className = 'details-card';
+      const schemaName = (typeof data?.schema_name === 'string') ? data.schema_name : null;
+      countsCard.innerHTML = [
+        schemaName ? `<div class="title">${schemaName}</div>` : '',
+        '<div class="title">统计</div>',
+        `\n<div>target_exterior: ${countTargetPolys}${countTargetPoints ? `（points: ${countTargetPoints}）` : ''}</div>`,
+        `\n<div>obstacle_box: ${countBoxes}</div>`,
+        `\n<div>barrier_line: ${countBarriers}</div>`,
+        `\n<div>parts: ${countParts}</div>`
+      ].join('');
+      legendContent.appendChild(countsCard);
+      // sections
+      const mkRow = (title, html) => { const r = document.createElement('div'); r.className = 'part-row'; r.innerHTML = `<strong>${title}</strong>${html ? `<div style="margin-top:6px">${html}</div>` : ''}`; legendContent.appendChild(r); return r; };
+      mkRow(`barrier_line (${countBarriers})`, '<span class="color-swatch" style="background:linear-gradient(90deg, rgba(200,30,30,0.9), rgba(200,30,30,0.9))"></span> dashed red lines');
+      mkRow(`obstacle_box (${countBoxes})`, '<span class="color-swatch" style="background:rgba(100,100,100,0.12)"></span> filled box');
+      mkRow(`target_exterior (${countTargetPolys}${countTargetPoints ? ` · points ${countTargetPoints}` : ''})`, '<span class="color-swatch" style="background:rgba(40,160,60,0.25)"></span> filled polygon');
+
+      // parts summary title
+      const partsTitle = document.createElement('div'); partsTitle.className = 'legend-section-title'; partsTitle.textContent = `parts (${countParts})`; legendContent.appendChild(partsTitle);
+      // parts entries（使用 partMeta，聚合 line/point）
+      const activeId = selectedPartId != null ? selectedPartId : hoveredPartId;
+      for (const m of partMeta) {
+        const row = document.createElement('div');
+        const rowActive = (selectedFocus && selectedFocus.part_id === m.part_id) || (selectedPartId != null && selectedPartId === m.part_id) || (!selectedFocus && activeId != null && m.part_id === activeId);
+        row.className = 'part-row' + (rowActive ? ' active' : '');
+        row.id = `legend-part-${safeId(m.part_id)}`;
+        // header
+        const header = document.createElement('div'); header.className = 'part-header';
+        const left = document.createElement('div'); left.className = 'part-name'; left.textContent = m.part_name || '(未命名部件)';
+        const right = document.createElement('div'); right.className = 'part-meta';
+        const idChip = document.createElement('span'); idChip.className = 'chip'; idChip.textContent = m.part_id != null ? `id: ${m.part_id}` : 'no-id';
+        const countChip = document.createElement('span'); countChip.className = 'chip'; countChip.textContent = `lines: ${m.lineCount} · points: ${m.pointCount}`;
+        right.appendChild(idChip); right.appendChild(countChip);
+        header.appendChild(left); header.appendChild(right); row.appendChild(header);
+        // weight scale swatches
+        const line = document.createElement('div'); line.className = 'row-line';
+        const swMin = document.createElement('span'); swMin.className = 'swatch'; swMin.style.background = colorForWeight(m.hue, m.minW, m.minW, m.maxW);
+        const swMax = document.createElement('span'); swMax.className = 'swatch'; swMax.style.background = colorForWeight(m.hue, m.maxW, m.minW, m.maxW);
+        const wtxt = document.createElement('span'); wtxt.style.fontSize = '12px'; wtxt.textContent = `weight: ${m.minW} ⇢ ${m.maxW}`;
+        line.appendChild(swMin); line.appendChild(swMax); line.appendChild(wtxt);
+        row.appendChild(line);
+        // 子列表：线
+        const linePart = parts.find(p => p.part_id === m.part_id);
+        if (linePart && Array.isArray(linePart.lines) && linePart.lines.length) {
+          const sub = document.createElement('div'); sub.className = 'sublist';
+          const title = document.createElement('div'); title.style.fontSize = '12px'; title.style.color = '#666'; title.textContent = `lines (${linePart.lines.length})`;
+          sub.appendChild(title);
+          // 排序：按权重从大到小，但保留原索引用于选择与渲染
+          const sortedLines = linePart.lines.map((it, idx) => ({ it, idx })).sort((a, b) => (b.it.weight ?? 0) - (a.it.weight ?? 0));
+          sortedLines.forEach(({ it, idx }) => {
+            const el = document.createElement('div'); el.className = 'subitem';
+            el.id = `legend-part-${safeId(m.part_id)}-line-${idx}`;
+            const isActive = (selectedFocus && selectedFocus.type === 'line' && selectedFocus.part_id === m.part_id && selectedFocus.lineIdx === idx) || (!selectedFocus && hoveredFocus && hoveredFocus.type === 'line' && hoveredFocus.part_id === m.part_id && hoveredFocus.lineIdx === idx);
+            if (isActive) el.classList.add('active');
+            el.textContent = `#${idx} weight=${it.weight}  (${it.lineSegment.x1.toFixed(1)},${it.lineSegment.y1.toFixed(1)}) → (${it.lineSegment.x2.toFixed(1)},${it.lineSegment.y2.toFixed(1)})`;
+            el.addEventListener('mouseenter', () => { hoveredPartId = m.part_id; hoveredFocus = { type: 'line', part_id: m.part_id, lineIdx: idx }; suppressLegend = true; render(); suppressLegend = false; });
+            el.addEventListener('mouseleave', () => { hoveredFocus = null; hoveredPartId = null; suppressLegend = true; render(); suppressLegend = false; });
+            el.addEventListener('click', (e) => { if (document.getElementById('dragOverlay')?.style.display === 'flex') return; e.stopPropagation(); selectedPartId = null; selectedFocus = (selectedFocus && selectedFocus.type === 'line' && selectedFocus.part_id === m.part_id && selectedFocus.lineIdx === idx) ? null : { type: 'line', part_id: m.part_id, lineIdx: idx }; focusCanvasOn({ type: 'line', part_id: m.part_id, lineIdx: idx }); ensureLegendVisible({ type: 'line', part_id: m.part_id, lineIdx: idx }); render(); });
+            el.addEventListener('dblclick', (e) => { if (document.getElementById('dragOverlay')?.style.display === 'flex') return; e.stopPropagation(); selectedFocus = null; selectedPartId = (selectedPartId === m.part_id) ? null : m.part_id; focusCanvasOn({ type: 'part', part_id: m.part_id }); ensureLegendVisible({ type: 'part', part_id: m.part_id }); render(); });
+            sub.appendChild(el);
+          });
+          row.appendChild(sub);
+        }
+        // 子列表：点
+        const pointPart = pointsParts.find(p => p.part_id === m.part_id);
+        if (pointPart && Array.isArray(pointPart.points) && pointPart.points.length) {
+          const sub = document.createElement('div'); sub.className = 'sublist';
+          const title = document.createElement('div'); title.style.fontSize = '12px'; title.style.color = '#666'; title.textContent = `points (${pointPart.points.length})`;
+          sub.appendChild(title);
+          // 排序：按权重从大到小，保留原索引用于选择与渲染
+          const sortedPoints = pointPart.points.map((pt, idx) => ({ pt, idx })).sort((a, b) => (b.pt.weight ?? 0) - (a.pt.weight ?? 0));
+          sortedPoints.forEach(({ pt, idx }) => {
+            const el = document.createElement('div'); el.className = 'subitem';
+            el.id = `legend-part-${safeId(m.part_id)}-point-${idx}`;
+            const isActive = (selectedFocus && selectedFocus.type === 'point' && selectedFocus.part_id === m.part_id && selectedFocus.pointIdx === idx) || (!selectedFocus && hoveredFocus && hoveredFocus.type === 'point' && hoveredFocus.part_id === m.part_id && hoveredFocus.pointIdx === idx);
+            if (isActive) el.classList.add('active');
+            el.textContent = `#${idx} weight=${pt.weight}  (${pt.coordinate.x.toFixed(1)},${pt.coordinate.y.toFixed(1)})`;
+            el.addEventListener('mouseenter', () => { hoveredPartId = m.part_id; hoveredFocus = { type: 'point', part_id: m.part_id, pointIdx: idx }; suppressLegend = true; render(); suppressLegend = false; });
+            el.addEventListener('mouseleave', () => { hoveredFocus = null; hoveredPartId = null; suppressLegend = true; render(); suppressLegend = false; });
+            el.addEventListener('click', (e) => { if (document.getElementById('dragOverlay')?.style.display === 'flex') return; e.stopPropagation(); selectedPartId = null; selectedFocus = (selectedFocus && selectedFocus.type === 'point' && selectedFocus.part_id === m.part_id && selectedFocus.pointIdx === idx) ? null : { type: 'point', part_id: m.part_id, pointIdx: idx }; focusCanvasOn({ type: 'point', part_id: m.part_id, pointIdx: idx }); ensureLegendVisible({ type: 'point', part_id: m.part_id, pointIdx: idx }); render(); });
+            el.addEventListener('dblclick', (e) => { if (document.getElementById('dragOverlay')?.style.display === 'flex') return; e.stopPropagation(); selectedFocus = null; selectedPartId = (selectedPartId === m.part_id) ? null : m.part_id; focusCanvasOn({ type: 'part', part_id: m.part_id }); ensureLegendVisible({ type: 'part', part_id: m.part_id }); render(); });
+            sub.appendChild(el);
+          });
+          row.appendChild(sub);
+        }
+        // 交互：Legend 上 hover/点击（整件）
+        row.addEventListener('mouseenter', () => { hoveredPartId = m.part_id ?? null; if (!hoveredFocus) hoveredFocus = { type: 'part', part_id: m.part_id }; suppressLegend = true; render(); suppressLegend = false; });
+        row.addEventListener('mouseleave', () => { hoveredPartId = null; if (hoveredFocus && hoveredFocus.type === 'part' && hoveredFocus.part_id === m.part_id) hoveredFocus = null; suppressLegend = true; render(); suppressLegend = false; });
+        row.addEventListener('click', (e) => {
+          if (document.getElementById('dragOverlay')?.style.display === 'flex') return;
+          // 点击整件：清理具体选中，切换整件选中，并让画布聚焦
+          selectedFocus = null;
+          selectedPartId = (selectedPartId === m.part_id) ? null : (m.part_id ?? null);
+          focusCanvasOn({ type: 'part', part_id: m.part_id });
+          ensureLegendVisible({ type: 'part', part_id: m.part_id });
+          render();
+        });
+        row.addEventListener('dblclick', (e) => { if (document.getElementById('dragOverlay')?.style.display === 'flex') return; e.stopPropagation(); selectedFocus = null; selectedPartId = (selectedPartId === m.part_id) ? null : (m.part_id ?? null); focusCanvasOn({ type: 'part', part_id: m.part_id }); render(); });
+        legendContent.appendChild(row);
+      }
+    }
+
+    function updateDetailsPanel() {
+      const el = document.getElementById('details');
+      if (!el) return;
+      const subject = selectedFocus || hoveredFocus || (selectedPartId != null ? { type: 'part', part_id: selectedPartId } : (hoveredPartId != null ? { type: 'part', part_id: hoveredPartId } : null));
+      if (!data || !subject) { el.innerHTML = ''; return; }
+      const meta = partMeta.find(m => m.part_id === subject.part_id);
+      let html = '';
+      if (subject.type === 'part') {
+        html += `<div class="title">部件：${meta?.part_name ?? ''} <span class="mono">#${subject.part_id ?? 'NA'}</span></div>`;
+        if (meta) {
+          html += `<div>lines: ${meta.lineCount} · points: ${meta.pointCount}</div>`;
+          html += `<div>weight: ${meta.minW} ⇢ ${meta.maxW}</div>`;
+        }
+      } else if (subject.type === 'line') {
+        const p = parts.find(pp => pp.part_id === subject.part_id);
+        const it = p && p.lines ? p.lines[subject.lineIdx] : null;
+        html += `<div class="title">线段 <span class="mono">#${subject.lineIdx}</span> @ 部件 <span class="mono">#${subject.part_id}</span></div>`;
+        if (it) {
+          const s = it.lineSegment;
+          html += `<div>weight: ${it.weight}</div>`;
+          html += `<div>(${s.x1.toFixed(2)}, ${s.y1.toFixed(2)}) → (${s.x2.toFixed(2)}, ${s.y2.toFixed(2)})</div>`;
+        }
+      } else if (subject.type === 'point') {
+        const p = pointsParts.find(pp => pp.part_id === subject.part_id);
+        const pt = p && p.points ? p.points[subject.pointIdx] : null;
+        html += `<div class="title">点 <span class="mono">#${subject.pointIdx}</span> @ 部件 <span class="mono">#${subject.part_id}</span></div>`;
+        if (pt) {
+          html += `<div>weight: ${pt.weight}</div>`;
+          html += `<div>(${pt.coordinate.x.toFixed(2)}, ${pt.coordinate.y.toFixed(2)})</div>`;
+        }
+      }
+      el.innerHTML = html;
+    }
+
+    // ------------------------------
+    // Hit testing：统一返回最接近的元素（line/point/box/barrier/target）
+    // 所有检测在 canvas 像素坐标空间中进行
+    // ------------------------------
+    function distPointToSegment(px, py, x1, y1, x2, y2) { const dx = x2 - x1, dy = y2 - y1; const l2 = dx * dx + dy * dy || 1e-9; let t = ((px - x1) * dx + (py - y1) * dy) / l2; t = Math.max(0, Math.min(1, t)); const projx = x1 + t * dx, projy = y1 + t * dy; return { dist: Math.hypot(px - projx, py - projy), projx, projy, t }; }
+
+    function findHitAt(pxCanvas, pyCanvas, threshold = 6) {
+      let best = null;
+      // Respect layer toggles
+      const showObstacles = !!document.getElementById('showObstacles')?.checked;
+      const showBarriers = !!document.getElementById('showBarriers')?.checked;
+      const showTargets = !!document.getElementById('showTargets')?.checked;
+      const showParts = !!document.getElementById('showParts')?.checked;
+      // part lines
+      if (showParts) { for (const p of parts) { const arr = p.lines || []; for (let i = 0; i < arr.length; i++) { const item = arr[i]; const s = item.lineSegment; const x1 = toCanvasX(s.x1), y1 = toCanvasY(s.y1), x2 = toCanvasX(s.x2), y2 = toCanvasY(s.y2); const d = distPointToSegment(pxCanvas, pyCanvas, x1, y1, x2, y2); if (d.dist <= threshold && (!best || d.dist < best.dist)) best = { type: 'part_line', part: p, item, lineIdx: i, x1, y1, x2, y2, dist: d.dist, projx: d.projx, projy: d.projy }; } } }
+      // part points
+      if (showParts) { for (const p of pointsParts) { const arr = p.points || []; for (let i = 0; i < arr.length; i++) { const pt = arr[i]; const cx = toCanvasX(pt.coordinate.x), cy = toCanvasY(pt.coordinate.y); const d = Math.hypot(pxCanvas - cx, pyCanvas - cy); const r = 4 + ((pt.weight - p.minW) / ((p.maxW - p.minW) || 1)) * 4; if (d <= Math.max(threshold, r + 3) && (!best || d < best.dist)) best = { type: 'part_point', part: p, pt, pointIdx: i, cx, cy, r, dist: d }; } } }
+      // barrier lines
+      if (showBarriers && data && Array.isArray(data.barrier_line)) {
+        for (const b of data.barrier_line) { const x1 = toCanvasX(b.x1), y1 = toCanvasY(b.y1), x2 = toCanvasX(b.x2), y2 = toCanvasY(b.y2); const d = distPointToSegment(pxCanvas, pyCanvas, x1, y1, x2, y2); if (d.dist <= threshold && (!best || d.dist < best.dist)) best = { type: 'barrier', item: b, x1, y1, x2, y2, dist: d.dist }; }
+      }
+      // obstacle boxes: check edge distance and point-in-polygon
+      if (showObstacles && data && Array.isArray(data.obstacle_box)) {
+        for (const box of data.obstacle_box) {
+          const pts = ['a', 'b', 'c', 'd'].map(k => box[k]).filter(Boolean); if (!pts.length) continue; // edges
+          // edges
+          for (let i = 0; i < pts.length; i++) { const p1 = pts[i]; const p2 = pts[(i + 1) % pts.length]; const x1 = toCanvasX(p1.x), y1 = toCanvasY(p1.y), x2 = toCanvasX(p2.x), y2 = toCanvasY(p2.y); const d = distPointToSegment(pxCanvas, pyCanvas, x1, y1, x2, y2); if (d.dist <= threshold && (!best || d.dist < best.dist)) best = { type: 'obstacle_edge', item: box, edge: [p1, p2], x1, y1, x2, y2, dist: d.dist }; }
+          // inside polygon (ray casting)
+          let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const xi = toCanvasX(pts[i].x), yi = toCanvasY(pts[i].y); const xj = toCanvasX(pts[j].x), yj = toCanvasY(pts[j].y); const intersect = ((yi > pyCanvas) != (yj > pyCanvas)) && (pxCanvas < (xj - xi) * (pyCanvas - yi) / (yj - yi + 1e-9) + xi); if (intersect) inside = !inside; }
+          if (inside && (!best || 0 < best.dist)) best = { type: 'obstacle_inside', item: box, dist: 0 };
+        }
+      }
+      // target exterior edges
+      if (showTargets && data && Array.isArray(data.target_exterior) && data.target_exterior.length > 1) { const pts = data.target_exterior; for (let i = 0; i < pts.length - 1; i++) { const p1 = pts[i], p2 = pts[i + 1]; const x1 = toCanvasX(p1.x), y1 = toCanvasY(p1.y), x2 = toCanvasX(p2.x), y2 = toCanvasY(p2.y); const d = distPointToSegment(pxCanvas, pyCanvas, x1, y1, x2, y2); if (d.dist <= threshold && (!best || d.dist < best.dist)) best = { type: 'target_edge', item: { p1, p2 }, x1, y1, x2, y2, dist: d.dist }; } }
+
+      return best;
+    }
+
+    // ------------------------------
+    // Mouse handling（把 client -> canvas 像素做转换）
+    // ------------------------------
+    canvas.addEventListener('mousemove', ev => {
+      if (isPanning) { tooltip.style.display = 'none'; return; }
+      if (!data) { tooltip.style.display = 'none'; return; }
+      const rect = canvas.getBoundingClientRect();
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      const mx = ev.clientX - rect.left; // CSS px relative to canvas (already includes translate)
+      const my = ev.clientY - rect.top;
+      // map CSS px to canvas px
+      const mxCanvas = mx * (canvas.width / rect.width);
+      const myCanvas = my * (canvas.height / rect.height);
+      const hit = findHitAt(mxCanvas, myCanvas, 8);
+      if (hit) {
+        // tooltip in CSS px
+        tooltip.style.display = 'block';
+        // position near the cursor (bottom-right), independent of canvas translate pan
+        const left = canvasWrap.scrollLeft + (ev.clientX - wrapRect.left) + 12;
+        const top = canvasWrap.scrollTop + (ev.clientY - wrapRect.top) + 12;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+        // compose info
+        let html = '';
+        if (hit.type === 'part_line') {
+          html += `<div style="font-weight:600">part line — ${hit.part.part_name} <span style="font-weight:400;color:#aaa">(#${hit.part.part_id ?? 'NA'})</span></div>`;
+          html += `<div>weight: ${hit.item.weight}</div>`;
+          const s = hit.item.lineSegment; html += `<div>(${s.x1.toFixed(2)}, ${s.y1.toFixed(2)}) → (${s.x2.toFixed(2)}, ${s.y2.toFixed(2)})</div>`;
+          // 聚合统计
+          const meta = partMeta.find(m => m.part_id === hit.part.part_id);
+          if (meta) html += `<div style="margin-top:4px;color:#ddd">lines: ${meta.lineCount} · points: ${meta.pointCount} · weight ${meta.minW}–${meta.maxW}</div>`;
+          hoveredPartId = hit.part.part_id ?? null; hoveredFocus = { type: 'line', part_id: hit.part.part_id, lineIdx: hit.lineIdx };
+        }
+        else if (hit.type === 'part_point') {
+          html += `<div style="font-weight:600">part point — ${hit.part.part_name} <span style="font-weight:400;color:#aaa">(#${hit.part.part_id ?? 'NA'})</span></div>`;
+          html += `<div>weight: ${hit.pt.weight}</div>`;
+          html += `<div>(${hit.pt.coordinate.x.toFixed(2)}, ${hit.pt.coordinate.y.toFixed(2)})</div>`;
+          const meta = partMeta.find(m => m.part_id === hit.part.part_id);
+          if (meta) html += `<div style="margin-top:4px;color:#ddd">lines: ${meta.lineCount} · points: ${meta.pointCount} · weight ${meta.minW}–${meta.maxW}</div>`;
+          hoveredPartId = hit.part.part_id ?? null; hoveredFocus = { type: 'point', part_id: hit.part.part_id, pointIdx: hit.pointIdx };
+        }
+        else if (hit.type === 'barrier') { html += `<div style="font-weight:600">barrier_line</div>`; const b = hit.item; html += `<div>(${b.x1.toFixed(2)}, ${b.y1.toFixed(2)}) → (${b.x2.toFixed(2)}, ${b.y2.toFixed(2)})</div>`; }
+        else if (hit.type === 'obstacle_edge' || hit.type === 'obstacle_inside') { html += `<div style="font-weight:600">obstacle_box</div>`; html += `<div>box corners: ${Object.keys(hit.item).map(k => { const p = hit.item[k]; return `(${p.x.toFixed(2)},${p.y.toFixed(2)})`; }).join(', ')}</div>`; }
+        else if (hit.type === 'target_edge') { html += `<div style="font-weight:600">target_exterior</div>`; html += `<div>edge</div>`; }
+        tooltip.innerHTML = html;
+        // highlight the hit element after full render
+        render(); // render 内根据 hoveredPartId 增强高亮
+        ctx.save();
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.lineWidth = 2.5;
+        if (hit.type === 'part_line' || hit.type === 'barrier' || hit.type === 'target_edge' || hit.type === 'obstacle_edge') {
+          ctx.beginPath(); ctx.moveTo(hit.x1, hit.y1); ctx.lineTo(hit.x2, hit.y2); ctx.stroke();
+        } else if (hit.type === 'part_point') {
+          ctx.beginPath(); ctx.arc(hit.cx, hit.cy, hit.r + 2, 0, Math.PI * 2); ctx.stroke();
+        } else if (hit.type === 'obstacle_inside') {
+          // draw thicker outline
+          const pts = ['a', 'b', 'c', 'd'].map(k => hit.item[k]).filter(Boolean);
+          if (pts.length) { ctx.beginPath(); ctx.moveTo(toCanvasX(pts[0].x), toCanvasY(pts[0].y)); for (let i = 1; i < pts.length; i++) ctx.lineTo(toCanvasX(pts[i].x), toCanvasY(pts[i].y)); ctx.closePath(); ctx.stroke(); }
+        }
+        ctx.restore();
+      } else {
+        tooltip.style.display = 'none';
+        if (hoveredPartId != null || hoveredFocus != null) { hoveredPartId = null; hoveredFocus = null; render(); }
+        else { render(); }
+      }
+    });
+
+    canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; if (hoveredPartId != null) { hoveredPartId = null; } render(); });
+
+    // ------------------------------
+    // Middle mouse drag to pan (scroll the wrapper)
+    // ------------------------------
+    canvasWrap.addEventListener('mousedown', ev => {
+      if (ev.button !== 1) return; // middle button only
+      isPanning = true;
+      panStartX = ev.clientX;
+      panStartY = ev.clientY;
+      startPanX = panX;
+      startPanY = panY;
+      canvasWrap.style.cursor = 'grabbing';
+      tooltip.style.display = 'none';
+      ev.preventDefault();
+      ev.stopPropagation();
+    });
+
+    window.addEventListener('mousemove', ev => {
+      if (!isPanning) return;
+      const dx = ev.clientX - panStartX;
+      const dy = ev.clientY - panStartY;
+      panX = startPanX + dx;
+      panY = startPanY + dy;
+      applyPanTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!isPanning) return;
+      isPanning = false;
+      canvasWrap.style.cursor = '';
+    });
+
+    // Prevent default middle-click auto-scroll/auxclick behavior on the wrapper
+    canvasWrap.addEventListener('auxclick', ev => {
+      if (ev.button === 1) {
+        ev.preventDefault();
+      }
+    });
+
+    // Zoom by resizing CSS width/height to avoid overlapping adjacent elements
+    // initialize CSS size — fit wrapper uniformly
+    requestAnimationFrame(() => {
+      computeBaseCssScale();
+      setCssSize(baseCssScale * currentScale);
+      applyPanTransform();
+    });
+    function applyPanTransform() {
+      // We only ever translate; zoom is handled by width/height.
+      // Preserve any existing transform none -> translate.
+      const tx = Math.round(panX);
+      const ty = Math.round(panY);
+      if (tx === 0 && ty === 0) {
+        canvas.style.transform = 'translate(0px, 0px)';
+      } else {
+        canvas.style.transform = `translate(${tx}px, ${ty}px)`;
+      }
+    }
+    canvas.addEventListener('wheel', ev => {
+      ev.preventDefault();
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
+      const oldCssScale = rect.width / canvas.width;
+      const mxWrap = ev.clientX - wrapRect.left;
+      const myWrap = ev.clientY - wrapRect.top;
+      const xCanvas = (ev.clientX - rect.left) / oldCssScale;
+      const yCanvas = (ev.clientY - rect.top) / oldCssScale;
+
+      const delta = -ev.deltaY;
+      const factor = delta > 0 ? 1.1 : 0.9;
+      currentScale = Math.min(8, Math.max(0.2, currentScale * factor));
+      const newCssScale = baseCssScale * currentScale;
+      setCssSize(newCssScale);
+
+      const newCssW = canvas.width * newCssScale;
+      const newCssH = canvas.height * newCssScale;
+
+      // 计算 translate 以保证锚点稳定，同时更新滚动条边界
+      const needScrollX = newCssW > canvasWrap.clientWidth;
+      const needScrollY = newCssH > canvasWrap.clientHeight;
+
+      if (needScrollX) {
+        const desired = xCanvas * newCssScale - mxWrap;
+        const maxScroll = Math.max(0, newCssW - canvasWrap.clientWidth);
+        canvasWrap.scrollLeft = Math.max(0, Math.min(desired, maxScroll));
+        // 仍允许 translate 存在，用于中键平移
+        panX = Math.round(mxWrap - xCanvas * newCssScale + canvasWrap.scrollLeft);
+      } else {
+        canvasWrap.scrollLeft = 0;
+        panX = Math.round(mxWrap - xCanvas * newCssScale);
+      }
+      if (needScrollY) {
+        const desired = yCanvas * newCssScale - myWrap;
+        const maxScroll = Math.max(0, newCssH - canvasWrap.clientHeight);
+        canvasWrap.scrollTop = Math.max(0, Math.min(desired, maxScroll));
+        panY = Math.round(myWrap - yCanvas * newCssScale + canvasWrap.scrollTop);
+      } else {
+        canvasWrap.scrollTop = 0;
+        panY = Math.round(myWrap - yCanvas * newCssScale);
+      }
+
+      applyPanTransform();
+    });
+
+    // 点击选择/取消选择零件/子项（单击选线/点，双击选整件）
+    canvas.addEventListener('click', ev => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      const mxCanvas = mx * (canvas.width / rect.width);
+      const myCanvas = my * (canvas.height / rect.height);
+      const hit = findHitAt(mxCanvas, myCanvas, 8);
+
+      // Shift+单击：立即选整件
+      if (ev.shiftKey && hit && (hit.type === 'part_line' || hit.type === 'part_point')) {
+        const pid = hit.part.part_id ?? null;
+        selectedPartId = (selectedPartId === pid) ? null : pid;
+        selectedFocus = null;
+        ensureLegendVisible({ type: 'part', part_id: pid });
+        render();
+        return;
+      }
+
+      // 常规单击：延迟执行，若紧随其后出现双击则取消
+      if (clickTimer) clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => {
+        if (hit && hit.type === 'part_line') {
+          const pid = hit.part.part_id ?? null;
+          const next = { type: 'line', part_id: pid, lineIdx: hit.lineIdx };
+          selectedFocus = (selectedFocus && selectedFocus.type === 'line' && selectedFocus.part_id === pid && selectedFocus.lineIdx === hit.lineIdx) ? null : next;
+          selectedPartId = null;
+          ensureLegendVisible(next);
+        } else if (hit && hit.type === 'part_point') {
+          const pid = hit.part.part_id ?? null;
+          const next = { type: 'point', part_id: pid, pointIdx: hit.pointIdx };
+          selectedFocus = (selectedFocus && selectedFocus.type === 'point' && selectedFocus.part_id === pid && selectedFocus.pointIdx === hit.pointIdx) ? null : next;
+          selectedPartId = null;
+          ensureLegendVisible(next);
+        } else {
+          selectedFocus = null; selectedPartId = null;
+        }
+        render();
+        clickTimer = null;
+      }, CLICK_DELAY);
+    });
+
+    // 双击：选择整件（再双击同件可取消）
+    canvas.addEventListener('dblclick', ev => {
+      ev.preventDefault();
+      if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+      const rect = canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      const mxCanvas = mx * (canvas.width / rect.width);
+      const myCanvas = my * (canvas.height / rect.height);
+      const hit = findHitAt(mxCanvas, myCanvas, 8);
+      if (hit && (hit.type === 'part_line' || hit.type === 'part_point')) {
+        const pid = hit.part.part_id ?? null;
+        selectedPartId = (selectedPartId === pid) ? null : pid;
+        selectedFocus = null;
+        ensureLegendVisible({ type: 'part', part_id: pid });
+      } else {
+        selectedPartId = null; selectedFocus = null;
+      }
+      render();
+    });
+
+    // 响应容器尺寸变化，保持不拉伸
+    window.addEventListener('resize', () => {
+      const prevCenterX = canvasWrap.scrollLeft + canvasWrap.clientWidth / 2;
+      const prevCenterY = canvasWrap.scrollTop + canvasWrap.clientHeight / 2;
+      computeBaseCssScale();
+      setCssSize(baseCssScale * currentScale);
+      applyPanTransform();
+      // 尽量保持视野中心不变
+      canvasWrap.scrollLeft = Math.max(0, prevCenterX - canvasWrap.clientWidth / 2);
+      canvasWrap.scrollTop = Math.max(0, prevCenterY - canvasWrap.clientHeight / 2);
+    });
+
+    // layer toggles
+    document.getElementById('showObstacles').addEventListener('change', render);
+    document.getElementById('showBarriers').addEventListener('change', render);
+    document.getElementById('showTargets').addEventListener('change', render);
+    document.getElementById('showParts').addEventListener('change', render);
+
+    // 首次渲染（无数据占位，需用户选择文件）
+    render();
+
+    // 文件选择：读取外部 JSON 并渲染
+    const fileInput = document.getElementById('jsonFile');
+    if (fileInput) {
+      fileInput.addEventListener('change', (ev) => {
+        const f = ev.target.files && ev.target.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const json = JSON.parse(String(reader.result));
+            setupFromData(json);
+          } catch (e) {
+            alert('JSON 解析失败：' + e.message);
+          }
+        };
+        reader.onerror = () => alert('文件读取失败');
+        reader.readAsText(f, 'utf-8');
+      });
+    }
+
+    // Expose helper on window for debugging / programmatic load
+    window.__vis = { toCanvasX, toCanvasY, setData: setupFromData, get data() { return data; } };
+    // 监听 legend mousedown/up，避免中途重建 DOM 造成 click/dblclick 丢失
+    if (legendRoot) {
+      legendRoot.addEventListener('mousedown', () => { isLegendMouseDown = true; });
+      window.addEventListener('mouseup', () => { if (isLegendMouseDown) { isLegendMouseDown = false; /* 让后续的 click 先触发，点击处理里会主动 render */ } });
+    }
+  </script>
+</body>
+
+</html>

@@ -149,7 +149,8 @@ def generate_connection_lines_from_point_candidates(
         candidate_lines: list[tuple[float, int, LineString]] = []
         for pt in candidate.points:
             for boundary_pt in sampled_boundary_pts:
-                line = LineString([pt, boundary_pt])
+                # pt is MyPoint; use its geometry
+                line = LineString([pt.geometry, boundary_pt])
                 if not line.crosses(exterior) and not any(
                     line.crosses(ob) for ob in obstacles
                 ):
@@ -181,8 +182,8 @@ def generate_connection_lines_from_point_candidates_backtracking(
     samples_distance: int = 1,
 ) -> list[LineString]:
     """
-    回溯版本：为每个候选点/线尝试连接到外轮廓，避免交叉/冲突。
-    保证全局尽可能多地连接成功（而不是局部贪心）。
+    回溯版本：为每个候选点/线尝试连接到外轮廓, 避免交叉/冲突。
+    保证全局尽可能多地连接成功(而不是局部贪心)。
     """
 
     sampled_boundary_pts = generate_sampled_points_by_length(exterior, samples_distance)
@@ -194,20 +195,21 @@ def generate_connection_lines_from_point_candidates_backtracking(
         # 线候选转为点候选
         total_candidates.append(line_candidate.to_point_candidate(10))
 
-    # 为每个候选预生成所有可能线（按长度升序）
+    # 为每个候选预生成所有可能线(按长度升序)
     all_candidate_lines = []
     counter = 0
     for candidate in total_candidates:
         lines_heap = []
         for pt in candidate.points:
             for boundary_pt in sampled_boundary_pts:
-                line = LineString([pt, boundary_pt])
+                # pt is MyPoint; use its geometry
+                line = LineString([pt.geometry, boundary_pt])
                 if not line.crosses(exterior) and not any(
                     line.crosses(ob) for ob in obstacles
                 ):
                     heappush(lines_heap, (line.length, counter, line))
                     counter += 1
-        # 排序成列表（按长度）
+        # 排序成列表(按长度)
         sorted_lines = [item[2] for item in sorted(lines_heap)]
         all_candidate_lines.append(sorted_lines)
 
@@ -222,13 +224,12 @@ def generate_connection_lines_from_point_candidates_backtracking(
                 best_solution = current_solution.copy()
             return
 
-        # 剪枝：即使后面全成功，也不可能超过当前最佳
+        # 剪枝：即使后面全成功, 也不可能超过当前最佳
         remaining_possible = len(all_candidate_lines) - idx
         if len(current_solution) + remaining_possible <= len(best_solution):
             return
 
         # 尝试当前候选的每一条线
-        placed = False  # 这个变量冗余了
         for line in all_candidate_lines[idx]:
             if is_valid_line(line, exterior, obstacles, used_lines, dispel_lines):
                 used_lines.append(line)
@@ -239,7 +240,6 @@ def generate_connection_lines_from_point_candidates_backtracking(
                 # 回溯
                 used_lines.pop()
                 current_solution.pop()
-                placed = True
 
         # 也允许跳过当前候选
         dfs(idx + 1, used_lines, current_solution)

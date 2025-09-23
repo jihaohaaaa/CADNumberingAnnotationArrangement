@@ -45,16 +45,53 @@ def is_valid_line(
 
     # 检查角度是否在水平或竖直范围内
     angle = get_line_angle(line)
-
-    # 排除水平（小于5°或大于175°）和竖直（85° 至 95°）线段
-    if abs(angle) <= 5 or 85 <= abs(angle) <= 95 or abs(angle) >= 175:
+    tolerant_angle = 15
+    # 排除水平和竖直线段, tolerant 为容忍角度
+    if (
+        abs(angle) <= tolerant_angle
+        or 90 - tolerant_angle <= abs(angle) <= 90 + tolerant_angle
+        or abs(angle) >= 180 - tolerant_angle
+    ):
         return False
 
     # 不能穿过边界线
     if line.crosses(polygon):
         return False
     # 不能穿过障碍物
-    if any(line.crosses(ob) for ob in obstacles):
+    # 优化：预筛选需要精确检测的障碍物
+    # 思路：
+    # 1) 按直线方向所在象限，排除明显在反方向的障碍物(通过质心与起点的相对位置判断)。
+    # 2) 使用包围盒快速相交测试(与线段包围盒无交则不可能相交)。
+    # 注意：为确保正确性，满足任一条件(同象限 或 与线段包围盒相交)即可进入精确检测列表。
+    start_pt = Point(line.coords[0])
+    end_pt = Point(line.coords[-1])
+
+    def _sign(v: float, eps: float = 1e-9) -> int:
+        return 1 if v > eps else (-1 if v < -eps else 0)
+
+    dx = end_pt.x - start_pt.x
+    dy = end_pt.y - start_pt.y
+    dir_sx, dir_sy = _sign(dx), _sign(dy)
+
+    def _in_same_quadrant(ob: Polygon) -> bool:
+        # 使用代表点(位于多边形内部，计算稳定)判定相对起点的象限
+        rp = ob.representative_point()
+        vx, vy = rp.x - start_pt.x, rp.y - start_pt.y
+        sx, sy = _sign(vx), _sign(vy)
+        # 如果某轴方向为0(近似水平/竖直)，则忽略该轴的象限约束
+        return (dir_sx == 0 or sx == dir_sx) and (dir_sy == 0 or sy == dir_sy)
+
+    lminx, lminy, lmaxx, lmaxy = line.bounds
+
+    def _bbox_overlaps_line_bbox(ob: Polygon) -> bool:
+        ominx, ominy, omaxx, omaxy = ob.bounds
+        return not (omaxx < lminx or ominx > lmaxx or omaxy < lminy or ominy > lmaxy)
+
+    candidate_obstacles = [
+        ob for ob in obstacles if _in_same_quadrant(ob) or _bbox_overlaps_line_bbox(ob)
+    ]
+
+    if any(line.crosses(ob) for ob in candidate_obstacles):
         return False
     # 不能与现有的线相交
     if any(line.intersects(l) for l in existing_lines):
