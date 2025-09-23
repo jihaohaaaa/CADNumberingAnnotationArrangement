@@ -309,6 +309,26 @@
     let currentScale = 1;        // 叠加缩放（相对于 baseCssScale）
     let baseCssScale = 1;        // 让原始 canvas 尺寸在 wrapper 中按不失真铺满的基准比例
 
+    // 保持一个“基础坐标系”的画布尺寸（不随 CSS 缩放而变），所有绘制以它为基准。
+    const baseCanvasWidth = canvas.width;
+    const baseCanvasHeight = canvas.height;
+    function getRenderScale() {
+      // 当前 CSS 宽度 / 基础画布宽度 = 逻辑缩放（不含设备像素比）
+      const rect = canvas.getBoundingClientRect();
+      return rect.width / baseCanvasWidth;
+    }
+    function syncBackingStoreToCss() {
+      // 将 backing store 尺寸匹配到 CSS 尺寸 * 设备像素比，保证放大不糊
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const targetW = Math.max(1, Math.round(rect.width * dpr));
+      const targetH = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+      }
+    }
+
     // 数据与映射（随数据重算）
     let data = null;
     const padding = 20;
@@ -326,7 +346,7 @@
     let isLegendMouseDown = false;
 
     function toCanvasX(x) { return x * baseScale + offsetX; }
-    function toCanvasY(y) { return canvas.height - (y * baseScale + offsetY); }
+    function toCanvasY(y) { return baseCanvasHeight - (y * baseScale + offsetY); }
 
     // hash -> hue
     function hueFromString(str) { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return Math.abs(h) % 360; }
@@ -341,28 +361,30 @@
       canvas.style.transform = 'translate(0px, 0px)';
       canvasWrap.scrollLeft = 0;
       canvasWrap.scrollTop = 0;
+      // 同步 backing store，避免缩放后模糊
+      syncBackingStoreToCss();
     }
 
     function computeBaseCssScale() {
-      // 让 canvas.width/height 在 wrapper 内完整显示且不变形
+      // 让基础画布尺寸在 wrapper 内完整显示且不变形
       const wrapRect = canvasWrap.getBoundingClientRect();
       const availW = Math.max(50, wrapRect.width - 20);
       const availH = Math.max(50, wrapRect.height - 20);
-      const sx = availW / canvas.width;
-      const sy = availH / canvas.height;
+      const sx = availW / baseCanvasWidth;
+      const sy = availH / baseCanvasHeight;
       baseCssScale = Math.max(0.1, Math.min(sx, sy));
     }
 
     function setCssSize(scale) {
-      const w = Math.round(canvas.width * scale);
-      const h = Math.round(canvas.height * scale);
+      const w = Math.round(baseCanvasWidth * scale);
+      const h = Math.round(baseCanvasHeight * scale);
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
     }
 
     function getCssScale() {
       const rect = canvas.getBoundingClientRect();
-      return rect.width / canvas.width;
+      return rect.width / baseCanvasWidth;
     }
 
     function safeId(val) {
@@ -486,15 +508,15 @@
           }
         }
       }
-      if (!isFinite(minX)) { minX = 0; minY = 0; maxX = canvas.width; maxY = canvas.height; }
+      if (!isFinite(minX)) { minX = 0; minY = 0; maxX = baseCanvasWidth; maxY = baseCanvasHeight; }
 
       const dataWidth = Math.max(1, maxX - minX);
       const dataHeight = Math.max(1, maxY - minY);
-      const baseScaleX = (canvas.width - padding * 2) / dataWidth;
-      const baseScaleY = (canvas.height - padding * 2) / dataHeight;
+      const baseScaleX = (baseCanvasWidth - padding * 2) / dataWidth;
+      const baseScaleY = (baseCanvasHeight - padding * 2) / dataHeight;
       baseScale = Math.min(baseScaleX, baseScaleY);
-      offsetX = padding - minX * baseScale + ((canvas.width - padding * 2) - dataWidth * baseScale) / 2;
-      offsetY = padding - minY * baseScale + ((canvas.height - padding * 2) - dataHeight * baseScale) / 2;
+      offsetX = padding - minX * baseScale + ((baseCanvasWidth - padding * 2) - dataWidth * baseScale) / 2;
+      offsetY = padding - minY * baseScale + ((baseCanvasHeight - padding * 2) - dataHeight * baseScale) / 2;
 
       // 衍生: parts/pointsParts
       parts = (data.part && Array.isArray(data.part.line_candidates)) ? data.part.line_candidates.map(p => {
@@ -561,7 +583,14 @@
 
     // Draw functions
     function render() {
+      // 确保 backing store 与 CSS 尺寸一致，并设置绘制变换：设备像素比 * 逻辑缩放
+      syncBackingStoreToCss();
+      const dpr = window.devicePixelRatio || 1;
+      const rs = getRenderScale();
+      // 先以设备像素坐标清空，再设置绘制坐标变换
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(dpr * rs, 0, 0, dpr * rs, 0, 0);
       // 无数据时提示选择文件
       if (!data) {
         legendContent.innerHTML = '<div>暂无数据</div>';
@@ -570,7 +599,7 @@
         ctx.font = '16px system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC"';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('选择 JSON 文件或者拖动文件到此处', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('选择 JSON 文件或者拖动文件到此处', baseCanvasWidth / 2, baseCanvasHeight / 2);
         ctx.restore();
         return;
       }
@@ -861,8 +890,8 @@
       const mx = ev.clientX - rect.left; // CSS px relative to canvas (already includes translate)
       const my = ev.clientY - rect.top;
       // map CSS px to canvas px
-      const mxCanvas = mx * (canvas.width / rect.width);
-      const myCanvas = my * (canvas.height / rect.height);
+      const mxCanvas = mx * (baseCanvasWidth / rect.width);
+      const myCanvas = my * (baseCanvasHeight / rect.height);
       const hit = findHitAt(mxCanvas, myCanvas, 8);
       if (hit) {
         // tooltip in CSS px
@@ -962,6 +991,7 @@
     requestAnimationFrame(() => {
       computeBaseCssScale();
       setCssSize(baseCssScale * currentScale);
+      syncBackingStoreToCss();
       applyPanTransform();
     });
     function applyPanTransform() {
@@ -979,7 +1009,7 @@
       ev.preventDefault();
       const wrapRect = canvasWrap.getBoundingClientRect();
       const rect = canvas.getBoundingClientRect();
-      const oldCssScale = rect.width / canvas.width;
+      const oldCssScale = rect.width / baseCanvasWidth;
       const mxWrap = ev.clientX - wrapRect.left;
       const myWrap = ev.clientY - wrapRect.top;
       const xCanvas = (ev.clientX - rect.left) / oldCssScale;
@@ -991,8 +1021,8 @@
       const newCssScale = baseCssScale * currentScale;
       setCssSize(newCssScale);
 
-      const newCssW = canvas.width * newCssScale;
-      const newCssH = canvas.height * newCssScale;
+      const newCssW = baseCanvasWidth * newCssScale;
+      const newCssH = baseCanvasHeight * newCssScale;
 
       // 计算 translate 以保证锚点稳定，同时更新滚动条边界
       const needScrollX = newCssW > canvasWrap.clientWidth;
@@ -1026,8 +1056,8 @@
       const rect = canvas.getBoundingClientRect();
       const mx = ev.clientX - rect.left;
       const my = ev.clientY - rect.top;
-      const mxCanvas = mx * (canvas.width / rect.width);
-      const myCanvas = my * (canvas.height / rect.height);
+      const mxCanvas = mx * (baseCanvasWidth / rect.width);
+      const myCanvas = my * (baseCanvasHeight / rect.height);
       const hit = findHitAt(mxCanvas, myCanvas, 8);
 
       // Shift+单击：立即选整件
@@ -1070,8 +1100,8 @@
       const rect = canvas.getBoundingClientRect();
       const mx = ev.clientX - rect.left;
       const my = ev.clientY - rect.top;
-      const mxCanvas = mx * (canvas.width / rect.width);
-      const myCanvas = my * (canvas.height / rect.height);
+      const mxCanvas = mx * (baseCanvasWidth / rect.width);
+      const myCanvas = my * (baseCanvasHeight / rect.height);
       const hit = findHitAt(mxCanvas, myCanvas, 8);
       if (hit && (hit.type === 'part_line' || hit.type === 'part_point')) {
         const pid = hit.part.part_id ?? null;
@@ -1090,6 +1120,7 @@
       const prevCenterY = canvasWrap.scrollTop + canvasWrap.clientHeight / 2;
       computeBaseCssScale();
       setCssSize(baseCssScale * currentScale);
+      syncBackingStoreToCss();
       applyPanTransform();
       // 尽量保持视野中心不变
       canvasWrap.scrollLeft = Math.max(0, prevCenterX - canvasWrap.clientWidth / 2);
