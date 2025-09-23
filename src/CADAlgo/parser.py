@@ -3,42 +3,66 @@ from shapely.geometry import Point, LineString, Polygon
 from shapely.ops import unary_union
 
 
-def interpolate_whole_path(lines: list[LineString], step: float) -> list[Point]:
+def interpolate_whole_path(lines: list["MyLine"], step: float) -> list["MyPoint"]:
     """
-    改进后 interpolate_whole_path, 解决边界点和索引越界问题。
-    """
-    result = []
-    total_length = sum(line.length for line in lines)
+    按给定步长在整条折线路径上等距采样，输入使用 MyLine，输出 MyPoint。
 
-    distances = []
+    说明：
+    - 路径由若干直线 MyLine 顺序拼接而成。
+    - 采样位置覆盖起点 0 与终点 total_length；中间按 step 递增。
+    - 对每段线做线性插值，不依赖 shapely 的 interpolate，避免类型不匹配。
+    - 采样点的 priority 继承自所在线段 MyLine.priority。
+    """
+    result: list[MyPoint] = []
+
+    # 预计算每段长度
+    seg_lengths: list[float] = []
+    for ln in lines:
+        (x1, y1) = ln.start
+        (x2, y2) = ln.end
+        dx = x2 - x1
+        dy = y2 - y1
+        seg_lengths.append((dx * dx + dy * dy) ** 0.5)
+
+    total_length = sum(seg_lengths)
+    if total_length <= 0:
+        return result
+
+    # 构造采样距离序列
+    distances: list[float] = []
     d = 0.0
-    while d <= total_length:
-        distances.append(d)
+    # 避免浮点误差导致漏采最后一点
+    eps = 1e-9
+    while d <= total_length + eps:
+        distances.append(min(d, total_length))
         d += step
-    if distances[-1] < total_length:
+    if distances[-1] < total_length - eps:
         distances.append(total_length)  # 确保终点被采样
 
     current_line_index = 0
-    current_line = lines[current_line_index]
     current_offset = 0.0  # 当前线段在整体路径的起点累计长度
 
     for distance in distances:
         # 移动到包含当前 distance 的线段
         while (
             current_line_index < len(lines)
-            and current_offset + current_line.length < distance
+            and current_offset + seg_lengths[current_line_index] < distance - eps
         ):
-            current_offset += current_line.length
+            current_offset += seg_lengths[current_line_index]
             current_line_index += 1
-            if current_line_index < len(lines):
-                current_line = lines[current_line_index]
-            else:
+            if current_line_index >= len(lines):
                 # 超出路径长度, 提前返回结果
                 return result
 
-        local_distance = distance - current_offset
-        pt = current_line.interpolate(local_distance)
-        result.append(pt)
+        # 当前段与本地距离
+        ln = lines[current_line_index]
+        seg_len = max(seg_lengths[current_line_index], eps)
+        local_distance = max(0.0, min(distance - current_offset, seg_len))
+        t = local_distance / seg_len
+        x = ln.start[0] + (ln.end[0] - ln.start[0]) * t
+        y = ln.start[1] + (ln.end[1] - ln.start[1]) * t
+        # 采样点的权重继承所在段的优先级
+        result.append(MyPoint((x, y), ln.priority))
 
     return result
 
@@ -103,10 +127,8 @@ class PartLineCandidate:
             PartPointCandidate: A new PartPointCandidate instance.
             Represent the sampled points from the lines.
         """
-        line_string_list: list[LineString] = [line.geometry for line in self.lines]
-        points = interpolate_whole_path(line_string_list, step)
-        # 采样点暂无权重来源，统一占位 1.0
-        my_points = [MyPoint((pt.x, pt.y), 1.0) for pt in points]
+        # 直接基于 MyLine 进行整路径采样，返回 MyPoint 列表
+        my_points = interpolate_whole_path(self.lines, step)
         return PartPointCandidate(self.part_name, my_points)
 
 
