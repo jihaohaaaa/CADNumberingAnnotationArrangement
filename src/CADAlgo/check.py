@@ -104,21 +104,13 @@ def is_valid_line(
             return False
     # 线段远离其他线段
     for other in existing_lines:
-        if point_approximate_line_string(
-            Point(line.coords[0]), other, distance_threshold
-        ):
+        if point_approximate_line_string(Point(line.coords[0]), other, 1):
             return False
-        if point_approximate_line_string(
-            Point(line.coords[-1]), other, distance_threshold
-        ):
+        if point_approximate_line_string(Point(line.coords[-1]), other, 1):
             return False
-        if point_approximate_line_string(
-            Point(other.coords[0]), line, distance_threshold
-        ):
+        if point_approximate_line_string(Point(other.coords[0]), line, 1):
             return False
-        if point_approximate_line_string(
-            Point(other.coords[-1]), line, distance_threshold
-        ):
+        if point_approximate_line_string(Point(other.coords[-1]), line, 1):
             return False
     return True
 

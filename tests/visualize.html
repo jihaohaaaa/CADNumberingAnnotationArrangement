@@ -621,6 +621,22 @@
         const pts = data.target_exterior.map(p => ({ x: toCanvasX(p.x), y: toCanvasY(p.y) }));
         if (pts.length > 1) { ctx.save(); ctx.fillStyle = 'rgba(40,160,60,0.12)'; ctx.strokeStyle = 'rgba(40,160,60,0.9)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); }
       }
+      // draw center (if provided)
+      if (data && data.center && typeof data.center.x === 'number' && typeof data.center.y === 'number') {
+        const cx = toCanvasX(data.center.x), cy = toCanvasY(data.center.y);
+        ctx.save();
+        const R = 10; // bigger marker radius
+        ctx.fillStyle = 'rgba(30,90,240,0.12)';
+        ctx.strokeStyle = 'rgba(20,20,220,0.9)';
+        ctx.lineWidth = 2;
+        // filled disk + ring
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // crosshair
+        const arm = R + 4;
+        ctx.beginPath(); ctx.moveTo(cx - arm, cy); ctx.lineTo(cx + arm, cy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy + arm); ctx.stroke();
+        ctx.restore();
+      }
       // part lines（两轮：先整体绘制并视情况变暗，再对活动对象（线/整件）加强绘制）
       if (document.getElementById('showParts').checked) {
         const activeItem = selectedFocus || hoveredFocus || null;
@@ -707,13 +723,17 @@
       const countsCard = document.createElement('div');
       countsCard.className = 'details-card';
       const schemaName = (typeof data?.schema_name === 'string') ? data.schema_name : null;
+      const centerHtml = (data && data.center && typeof data.center.x === 'number' && typeof data.center.y === 'number')
+        ? `\n<div>center: (${Number(data.center.x).toFixed(2)}, ${Number(data.center.y).toFixed(2)})</div>`
+        : '';
       countsCard.innerHTML = [
         schemaName ? `<div class="title">${schemaName}</div>` : '',
         '<div class="title">统计</div>',
         `\n<div>target_exterior: ${countTargetPolys}${countTargetPoints ? `（points: ${countTargetPoints}）` : ''}</div>`,
         `\n<div>obstacle_box: ${countBoxes}</div>`,
         `\n<div>barrier_line: ${countBarriers}</div>`,
-        `\n<div>parts: ${countParts}</div>`
+        `\n<div>parts: ${countParts}</div>`,
+        centerHtml
       ].join('');
       legendContent.appendChild(countsCard);
       // sections
@@ -748,6 +768,21 @@
         row.appendChild(line);
         // 子列表：线
         const linePart = parts.find(p => p.part_id === m.part_id);
+        // 如果该部件有线段，计算线段总长度并放到 header 右侧 chip
+        if (linePart && Array.isArray(linePart.lines) && linePart.lines.length) {
+          let totalLen = 0;
+          for (const it of linePart.lines) {
+            const s = it.lineSegment || {};
+            const dx = (s.x2 ?? 0) - (s.x1 ?? 0);
+            const dy = (s.y2 ?? 0) - (s.y1 ?? 0);
+            totalLen += Math.hypot(dx, dy);
+          }
+          const lenChip = document.createElement('span');
+          lenChip.className = 'chip';
+          lenChip.title = '线段总长度';
+          lenChip.textContent = `ΣL: ${totalLen.toFixed(3)}`;
+          right.appendChild(lenChip);
+        }
         if (linePart && Array.isArray(linePart.lines) && linePart.lines.length) {
           const sub = document.createElement('div'); sub.className = 'sublist';
           const title = document.createElement('div'); title.style.fontSize = '12px'; title.style.color = '#666'; title.textContent = `lines (${linePart.lines.length})`;
@@ -828,6 +863,19 @@
           const s = it.lineSegment;
           html += `<div>weight: ${it.weight}</div>`;
           html += `<div>(${s.x1.toFixed(2)}, ${s.y1.toFixed(2)}) → (${s.x2.toFixed(2)}, ${s.y2.toFixed(2)})</div>`;
+          // 几何量：长度与归一化方向角（度）
+          const dx = (s.x2 ?? 0) - (s.x1 ?? 0);
+          const dy = (s.y2 ?? 0) - (s.y1 ?? 0);
+          const len = Math.hypot(dx, dy);
+          if (len > 0) {
+            const angleRad = Math.atan2(dy, dx);
+            const angleDeg = (angleRad * 180 / Math.PI + 360) % 360;
+            html += `<div>长度: ${len.toFixed(3)}</div>`;
+            html += `<div>角度(归一化向量): ${angleDeg.toFixed(1)}&deg;</div>`;
+          } else {
+            html += `<div>长度: 0</div>`;
+            html += `<div>角度(归一化向量): —</div>`;
+          }
         }
       } else if (subject.type === 'point') {
         const p = pointsParts.find(pp => pp.part_id === subject.part_id);
@@ -876,6 +924,14 @@
       // target exterior edges
       if (showTargets && data && Array.isArray(data.target_exterior) && data.target_exterior.length > 1) { const pts = data.target_exterior; for (let i = 0; i < pts.length - 1; i++) { const p1 = pts[i], p2 = pts[i + 1]; const x1 = toCanvasX(p1.x), y1 = toCanvasY(p1.y), x2 = toCanvasX(p2.x), y2 = toCanvasY(p2.y); const d = distPointToSegment(pxCanvas, pyCanvas, x1, y1, x2, y2); if (d.dist <= threshold && (!best || d.dist < best.dist)) best = { type: 'target_edge', item: { p1, p2 }, x1, y1, x2, y2, dist: d.dist }; } }
 
+      // center point (if provided)
+      if (data && data.center && typeof data.center.x === 'number' && typeof data.center.y === 'number') {
+        const cx = toCanvasX(data.center.x), cy = toCanvasY(data.center.y);
+        const d = Math.hypot(pxCanvas - cx, pyCanvas - cy);
+        const thr = Math.max(threshold, 12);
+        if (d <= thr && (!best || d < best.dist)) best = { type: 'center', cx, cy, dist: d };
+      }
+
       return best;
     }
 
@@ -907,6 +963,18 @@
           html += `<div style="font-weight:600">part line — ${hit.part.part_name} <span style="font-weight:400;color:#aaa">(#${hit.part.part_id ?? 'NA'})</span></div>`;
           html += `<div>weight: ${hit.item.weight}</div>`;
           const s = hit.item.lineSegment; html += `<div>(${s.x1.toFixed(2)}, ${s.y1.toFixed(2)}) → (${s.x2.toFixed(2)}, ${s.y2.toFixed(2)})</div>`;
+          // 长度与归一化方向角（度）
+          {
+            const dx = (s.x2 ?? 0) - (s.x1 ?? 0);
+            const dy = (s.y2 ?? 0) - (s.y1 ?? 0);
+            const len = Math.hypot(dx, dy);
+            if (len > 0) {
+              const angleDeg = ((Math.atan2(dy, dx) * 180 / Math.PI) + 360) % 360;
+              html += `<div>长度: ${len.toFixed(3)} · 角度: ${angleDeg.toFixed(1)}&deg;</div>`;
+            } else {
+              html += `<div>长度: 0 · 角度: —</div>`;
+            }
+          }
           // 聚合统计
           const meta = partMeta.find(m => m.part_id === hit.part.part_id);
           if (meta) html += `<div style="margin-top:4px;color:#ddd">lines: ${meta.lineCount} · points: ${meta.pointCount} · weight ${meta.minW}–${meta.maxW}</div>`;
@@ -923,6 +991,7 @@
         else if (hit.type === 'barrier') { html += `<div style="font-weight:600">barrier_line</div>`; const b = hit.item; html += `<div>(${b.x1.toFixed(2)}, ${b.y1.toFixed(2)}) → (${b.x2.toFixed(2)}, ${b.y2.toFixed(2)})</div>`; }
         else if (hit.type === 'obstacle_edge' || hit.type === 'obstacle_inside') { html += `<div style="font-weight:600">obstacle_box</div>`; html += `<div>box corners: ${Object.keys(hit.item).map(k => { const p = hit.item[k]; return `(${p.x.toFixed(2)},${p.y.toFixed(2)})`; }).join(', ')}</div>`; }
         else if (hit.type === 'target_edge') { html += `<div style="font-weight:600">target_exterior</div>`; html += `<div>edge</div>`; }
+        else if (hit.type === 'center') { html += `<div style="font-weight:600">中心点 (center)</div>`; if (data && data.center) { html += `<div>(${Number(data.center.x).toFixed(2)}, ${Number(data.center.y).toFixed(2)})</div>`; } }
         tooltip.innerHTML = html;
         // highlight the hit element after full render
         render(); // render 内根据 hoveredPartId 增强高亮
@@ -937,6 +1006,9 @@
           // draw thicker outline
           const pts = ['a', 'b', 'c', 'd'].map(k => hit.item[k]).filter(Boolean);
           if (pts.length) { ctx.beginPath(); ctx.moveTo(toCanvasX(pts[0].x), toCanvasY(pts[0].y)); for (let i = 1; i < pts.length; i++) ctx.lineTo(toCanvasX(pts[i].x), toCanvasY(pts[i].y)); ctx.closePath(); ctx.stroke(); }
+        } else if (hit.type === 'center') {
+          const R = 12;
+          ctx.beginPath(); ctx.arc(hit.cx, hit.cy, R, 0, Math.PI * 2); ctx.stroke();
         }
         ctx.restore();
       } else {
@@ -1111,6 +1183,20 @@
       } else {
         selectedPartId = null; selectedFocus = null;
       }
+      render();
+    });
+
+    // 点击 canvasWrap 的空白区域（不在 canvas 上）也取消选择/悬浮
+    canvasWrap.addEventListener('click', (ev) => {
+      // 仅当点击目标不是 canvas（即 wrapper 空白区域）时处理
+      if (ev.target === canvas) return;
+      // 避免正在拖拽/中键平移时误触
+      if (isPanning) return;
+      tooltip.style.display = 'none';
+      hoveredFocus = null;
+      hoveredPartId = null;
+      selectedFocus = null;
+      selectedPartId = null;
       render();
     });
 

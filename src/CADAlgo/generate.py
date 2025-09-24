@@ -142,7 +142,7 @@ def generate_connection_lines_from_point_candidates(
     total_candidates.extend(point_candidates)
     from_line_point_candidate = []
     for line_candidate in line_candidates:
-        from_line_point_candidate.append(line_candidate.to_point_candidate(10))
+        from_line_point_candidate.append(line_candidate.to_point_candidate_v2())
     total_candidates.extend(from_line_point_candidate)
 
     for candidate in total_candidates:
@@ -193,7 +193,7 @@ def generate_connection_lines_from_point_candidates_backtracking(
     total_candidates.extend(point_candidates)
     for line_candidate in line_candidates:
         # 线候选转为点候选
-        total_candidates.append(line_candidate.to_point_candidate(10))
+        total_candidates.append(line_candidate.to_point_candidate_v2())
 
     # 为每个候选预生成所有可能线(按长度升序)
     all_candidate_lines = []
