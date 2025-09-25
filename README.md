@@ -116,3 +116,100 @@
   - 按几何中心到边界的距离对候选排序以提高效率。
   - 使用向量运算验证线段夹角, 优先选择满足5°到65°约束的线段。
   - 在回溯算法中优先探索夹角分布均匀的方案。
+
+## 九、回溯排布算法流程（generate_connection_lines_from_point_candidates_backtracking）
+
+下图与步骤描述展示了回溯版排布算法的整体流程，已包含“优先级”策略：
+
+- 候选优先级说明：`priority` 从 1 开始，数值越小优先级越高；数值越大优先级越低。
+- 候选排序规则：按“候选内点的最小 priority”升序排序（高优先更先处理）。
+- 候选内连线排序：以“点的 priority”优先，再以“线段长度”优先（更小更优）。
+
+### 步骤概览
+
+1) 边界采样：对外轮廓 `exterior` 以固定步长采样边界点集合。
+2) 候选统一：将线候选 `PartLineCandidate` 通过 v2 规则采样为点候选，与原有点候选合并。
+3) 候选排序（按优先级）：对合并后的候选按最小点优先级升序排序。
+4) 预生成可行连线：
+   - 对每个候选，枚举其每个点与全部边界采样点，构造连线；
+   - 过滤不合法连线（不穿越外轮廓、不穿越障碍物的快速几何筛选）；
+   - 将合格连线按键 `(点priority, 线长)` 排序，得到该候选的“候选线列表”。
+5) 回溯搜索（DFS）与剪枝：
+
+- 递归遍历候选序列，尝试为当前候选选择一条与既有选择不冲突的连线；
+- 使用 `is_valid_line` 严格校验（不与已有连线相交、满足距离/夹角等约束、避开驱散线 `dispel_lines`）；
+- 维护全局最优（连接数量最多）。
+- 入口剪枝：若“当前已选数量 + 剩余候选数 ≤ 已知最优条数”，直接回退。
+- 循环层剪枝：在当前候选的候选线循环中，若“本层上界 = 当前已选 + 剩余候选数 == 已知最优”，剪掉本层剩余线的尝试。
+- 跳过分支剪枝：若“当前已选 + 剩余候选数 - 1 ≤ 已知最优”，则无需探索“跳过当前候选”的分支。
+
+6）日志记录
+
+- 当找到“全覆盖”（全部候选均成功连接）时，输出一次 INFO 日志（控制台可见）。
+- DFS 过程细节（进入、剪枝、尝试、选择、回溯、跳过、更新最优）以 DEBUG 写入 `backtracking_dfs.log` 文件。
+
+### Mermaid 流程图
+
+```mermaid
+flowchart TD
+  A["开始"] --> B["采样外轮廓点<br/>generate_sampled_points_by_length"]
+  B --> C["统一候选<br/>point_candidates + line_candidates.to_point_candidate_v2"]
+  C --> D["为每个候选预生成候选线列表"]
+  D --> D1["枚举 点 x 边界采样点"]
+  D1 --> D2["构造 LineString pt->boundary_pt"]
+  D2 --> D3{"是否穿越<br/>外轮廓 或 障碍物?"}
+  D3 -- 是 --> D1
+  D3 -- 否 --> D4["按 (点优先级, 线长, 序号) 入堆"]
+  D4 --> D5["堆排序 -> 候选线列表"]
+  D5 --> E["DFS 启动: idx=0, selected=∅"]
+
+  E --> F{"idx 是否等于候选数?"}
+  F -- 是 --> G{"selected 是否更优?"}
+  G -- 是 --> H["best_solution <- selected 拷贝"]
+  G -- 否 --> I["返回"]
+  H --> J{"是否全覆盖 且 未记录?"}
+  J -- 是 --> K["INFO: 全覆盖方案"]
+  J -- 否 --> I
+
+  F -- 否 --> L["remaining = 候选数 - idx"]
+  L --> M{"selected + remaining <= best ?"}
+  M -- 是 --> I
+  M -- 否 --> N["遍历 当前候选 的候选线"]
+
+  N --> O["取一条候选线"]
+  O --> P{"is_valid_line 合法?"}
+  P -- 否 --> S["尝试下一条"]
+  P -- 是 --> Q["选择该线 push"]
+  Q --> R["递归: DFS(idx+1, selected)"]
+  R --> T["回溯 pop"]
+  T --> U{"本层上界 == 已知最优?"}
+  U -- 是 --> V["剪掉本层剩余线"]
+  U -- 否 --> S
+
+  V --> W
+  S --> W
+  W["评估跳过分支"] --> X{"selected + remaining - 1 <= best?"}
+  X -- 是 --> I
+  X -- 否 --> Y["跳过当前候选 -> DFS(idx+1, selected)"]
+  Y --> I
+```
+
+### 伪代码（与实现一致）
+
+- 输入：
+  - `point_candidates: list[PartPointCandidate]`
+  - `line_candidates: list[PartLineCandidate]`
+  - `exterior: Polygon`, `obstacles: list[Polygon]`, `dispel_lines: list[LineString]`
+  - `samples_distance: int`
+
+- 输出：
+  - `list[LineString]`（最佳方案中的连线集合）
+
+- 核心逻辑：
+  - 采样 `exterior` 的边界点。
+  - 将线候选转点候选（v2），与点候选合并，按候选优先级排序。
+  - 为每个候选生成“候选线列表”，按 `(点priority, 线长)` 排序。
+  - DFS：按顺序尝试为每个候选选线，满足 `is_valid_line` 则继续；维护 `best_solution`，并应用三类剪枝（入口剪枝、循环层剪枝、跳过分支剪枝）。
+  - 日志：全覆盖以 INFO 输出到控制台；DFS 细节以 DEBUG 写入 `backtracking_dfs.log`；最终返回 `best_solution`。
+
+提示：优先级越小越先被处理；在候选内部也优先使用来自高优先级点的连线，并倾向更短的连线，这会引导回溯更早满足高优先级部件的布线需求。

@@ -213,70 +213,88 @@ class Schema:
         self.target_exterior = target_exterior
         # 为保留原始障碍框信息, 增加 raw 版本（不过滤/不合并）
         self.obstacle_boxes_raw: list[ObstacleBox] = list(obstacle_boxes)
+        # 由专用方法完成障碍框的过滤与合并
+        self.obstacle_boxes = self._build_obstacle_boxes(
+            self.obstacle_boxes_raw, self.target_exterior
+        )
+        self.barrier_lines = barrier_lines
+        self.line_candidates = line_candidates
+        self.point_candidates = point_candidates
+
+    @staticmethod
+    def _build_obstacle_boxes(
+        obstacle_boxes: list[ObstacleBox],
+        target_exterior: Polygon,
+        delta: float = 1.0,
+    ) -> list[ObstacleBox]:
+        """
+        基于目标外轮廓 target_exterior 对障碍框执行三步处理:
+        1) 过滤：仅保留与 target_exterior 相交的障碍框;
+        2) 去除被包含：按面积从大到小, 剔除被已保留集合覆盖(covers)的小框;
+        3) 合并：将距离<=delta(含相交/相邻)的障碍框聚类并合并为其最小外接旋转矩形。
+
+        返回处理后的障碍框列表。
+        """
         # 仅保留与 target_exterior 相交的障碍框; 完全在外部的剔除
-        # 如需更严格的“完全在内部”可将 intersects 改为 within
         filtered_obs = [
-            ob for ob in obstacle_boxes if ob.geometry.intersects(self.target_exterior)
+            ob for ob in obstacle_boxes if ob.geometry.intersects(target_exterior)
         ]
+
         # 若大的障碍框包住了小的, 则保留大的, 剔除被包含的小的
-        # 策略：按面积从大到小遍历, 若当前被已保留集合中的任一覆盖(covers), 则跳过
         sorted_obs = sorted(filtered_obs, key=lambda ob: ob.geometry.area, reverse=True)
         kept: list[ObstacleBox] = []
         for ob in sorted_obs:
             if any(k.geometry.covers(ob.geometry) for k in kept):
                 continue
             kept.append(ob)
-        # 第三步：将相互距离小于等于 delta(含重叠/相邻)的障碍框合并为更大的一个
-        delta = 1.0
-        if kept:
-            polys = [ob.geometry for ob in kept]
-            n = len(polys)
-            visited = [False] * n
-            clusters: list[list[int]] = []
-            for i in range(n):
-                if visited[i]:
-                    continue
-                # BFS/DFS 聚类：距离<=delta 即连通
-                queue = [i]
-                visited[i] = True
-                cluster = []
-                while queue:
-                    p = queue.pop(0)
-                    cluster.append(p)
-                    for q in range(n):
-                        if not visited[q] and polys[p].distance(polys[q]) <= delta:
-                            visited[q] = True
-                            queue.append(q)
-                clusters.append(cluster)
 
-            merged_boxes: list[ObstacleBox] = []
-            for idxs in clusters:
-                geoms = [polys[idx] for idx in idxs]
-                uni = unary_union(geoms)
-                if uni.is_empty:
-                    continue
-                # 用最小外接旋转矩形作为合并结果(OBB)
-                mrr = uni.minimum_rotated_rectangle
-                verts: list[tuple[float, float]] | None = None
-                # 仅当是 Polygon 时才有 exterior
-                if isinstance(mrr, Polygon):
-                    coords = list(mrr.exterior.coords)
-                    # Shapely 返回首尾相同点, 取前四个顶点
-                    verts = [(float(x), float(y)) for (x, y) in coords[:-1][:4]]
-                if verts and len(verts) == 4:
-                    merged_boxes.append(ObstacleBox(verts))
-                else:
-                    # 兜底：如果异常, 回退为该簇的外包矩形(轴对齐)
-                    minx, miny, maxx, maxy = map(float, uni.bounds)
-                    fallback = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)]
-                    merged_boxes.append(ObstacleBox(fallback))
+        # 将相互距离小于等于 delta(含重叠/相邻)的障碍框合并为更大的一个
+        if not kept:
+            return []
 
-            self.obstacle_boxes = merged_boxes
-        else:
-            self.obstacle_boxes = kept
-        self.barrier_lines = barrier_lines
-        self.line_candidates = line_candidates
-        self.point_candidates = point_candidates
+        polys = [ob.geometry for ob in kept]
+        n = len(polys)
+        visited = [False] * n
+        clusters: list[list[int]] = []
+        for i in range(n):
+            if visited[i]:
+                continue
+            # BFS/DFS 聚类：距离<=delta 即连通
+            queue = [i]
+            visited[i] = True
+            cluster = []
+            while queue:
+                p = queue.pop(0)
+                cluster.append(p)
+                for q in range(n):
+                    if not visited[q] and polys[p].distance(polys[q]) <= delta:
+                        visited[q] = True
+                        queue.append(q)
+            clusters.append(cluster)
+
+        merged_boxes: list[ObstacleBox] = []
+        for idxs in clusters:
+            geoms = [polys[idx] for idx in idxs]
+            uni = unary_union(geoms)
+            if uni.is_empty:
+                continue
+            # 用最小外接旋转矩形作为合并结果(OBB)
+            mrr = uni.minimum_rotated_rectangle
+            verts: list[tuple[float, float]] | None = None
+            # 仅当是 Polygon 时才有 exterior
+            if isinstance(mrr, Polygon):
+                coords = list(mrr.exterior.coords)
+                # Shapely 返回首尾相同点, 取前四个顶点
+                verts = [(float(x), float(y)) for (x, y) in coords[:-1][:4]]
+            if verts and len(verts) == 4:
+                merged_boxes.append(ObstacleBox(verts))
+            else:
+                # 兜底：如果异常, 回退为该簇的外包矩形(轴对齐)
+                minx, miny, maxx, maxy = map(float, uni.bounds)
+                fallback = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)]
+                merged_boxes.append(ObstacleBox(fallback))
+
+        return merged_boxes
 
 
 class SchemaParseError(Exception):

@@ -5,7 +5,6 @@ from heapq import heappush, heappop
 import math
 
 
-# TODO 可以让远离其他线段的逻辑可以变更,越大越不挤在一起
 def is_valid_line(
     line: LineString,
     polygon: Polygon,
