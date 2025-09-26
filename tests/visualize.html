@@ -30,6 +30,12 @@
       margin: 0 0 8px;
     }
 
+    #headerTitle {
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.25;
+    }
+
     #container {
       display: flex;
       gap: 12px;
@@ -69,6 +75,30 @@
       flex: 0 0 360px;
       /* 固定宽度，不参与压缩 */
       scroll-behavior: smooth;
+    }
+
+    #splitter {
+      width: 6px;
+      flex: 0 0 6px;
+      cursor: col-resize;
+      background: linear-gradient(180deg, #e4e7eb, #d5d9de);
+      border: 1px solid #d0d4d9;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    #splitter::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      left: 50%;
+      width: 2px;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    #splitter.dragging {
+      background: linear-gradient(180deg, #c8d3e0, #b7c2ce);
     }
 
     .part-row {
@@ -223,22 +253,28 @@
 </head>
 
 <body>
-  <h2 id="headerTitle" title="数据概览：动态显示当前 JSON 的名称与对象数量">未加载数据 — 请选择或拖拽 JSON 文件</h2>
+  <div id="tabBar" style="display:flex;gap:4px;align-items:stretch;margin:0 0 6px;flex-wrap:wrap;">
+    <div id="addTabBtn"
+      style="padding:4px 10px;border:1px dashed #bbb;border-radius:6px;font-size:12px;cursor:pointer;color:#666;user-select:none;">
+      + 新标签</div>
+    <div id="clearTabsBtn"
+      style="padding:4px 10px;border:1px solid #e99;border-radius:6px;font-size:12px;cursor:pointer;color:#b22;user-select:none;">
+      清空</div>
+  </div>
+  <h2 id="headerTitle" title="数据概览：动态显示当前 JSON 的名称与对象数量">未加载数据 — 拖拽或粘贴 JSON 以开始</h2>
   <div class="controls">
     <label class="layer-toggle"><input type="checkbox" id="showObstacles" checked /> obstacle_box</label>
     <label class="layer-toggle"><input type="checkbox" id="showBarriers" checked /> barrier_line</label>
     <label class="layer-toggle"><input type="checkbox" id="showTargets" checked /> target_exterior</label>
     <label class="layer-toggle"><input type="checkbox" id="showParts" checked /> part candidates</label>
-    <span style="margin-left:12px"></span>
-    <label class="layer-toggle">
-      选择 JSON: <input type="file" id="jsonFile" accept=".json,application/json" />
-    </label>
+    <label class="layer-toggle"><input type="checkbox" id="showSolution" checked /> solution</label>
   </div>
   <div id="container">
     <div id="canvasWrap">
       <canvas id="c" width="800" height="600"></canvas>
       <div id="tooltip" class="tooltip"></div>
     </div>
+    <div id="splitter" title="拖动调整面板宽度"></div>
     <div id="legend">
       <div class="legend-title">Legend</div>
       <div id="details" class="details-card"></div>
@@ -250,39 +286,21 @@
     </div>
 
     <script>
-      // 拖拽支持：全局拖拽提示
+      // 仅限 canvasWrap 区域的拖拽导入
       const dragOverlay = document.getElementById('dragOverlay');
+      const canvasWrapEl = document.getElementById('canvasWrap');
       let dragCounter = 0;
       function showOverlay() { dragOverlay.style.display = 'flex'; dragOverlay.style.opacity = '1'; }
       function hideOverlay() { dragOverlay.style.opacity = '0'; setTimeout(() => { dragOverlay.style.display = 'none'; }, 180); }
       function handleDropFile(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        dragCounter = 0; hideOverlay();
-        const files = ev.dataTransfer.files;
-        if (!files || !files.length) return;
-        const f = files[0];
-        if (!/\.json$/i.test(f.name)) {
-          alert('请拖入 .json 文件');
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const json = JSON.parse(String(reader.result));
-            setupFromData(json);
-          } catch (e) {
-            alert('JSON 解析失败：' + e.message);
-          }
-        };
-        reader.onerror = () => alert('文件读取失败');
-        reader.readAsText(f, 'utf-8');
+        ev.preventDefault(); ev.stopPropagation(); dragCounter = 0; hideOverlay();
+        const fileList = Array.from(ev.dataTransfer.files || []).filter(f => /\.json$/i.test(f.name));
+        if (!fileList.length) { alert('未找到 .json 文件'); return; }
+        let idx = 0; (function loadNext() { if (idx >= fileList.length) return; const f = fileList[idx++]; const reader = new FileReader(); reader.onload = () => { try { const json = JSON.parse(String(reader.result)); if (window.__vis?.openNewTab) { window.__vis.openNewTab(json, f.name); } else { setupFromData(json); } } catch (e) { console.error(e); alert('JSON 解析失败: ' + f.name + ' => ' + e.message); } finally { loadNext(); } }; reader.onerror = () => { alert('文件读取失败: ' + f.name); loadNext(); }; reader.readAsText(f, 'utf-8'); })();
       }
       function preventDefault(ev) { ev.preventDefault(); ev.stopPropagation(); }
-      document.body.addEventListener('dragover', ev => { preventDefault(ev); });
-      document.body.addEventListener('dragenter', ev => { preventDefault(ev); dragCounter++; showOverlay(); });
-      document.body.addEventListener('dragleave', ev => { preventDefault(ev); dragCounter--; if (dragCounter <= 0) { hideOverlay(); } });
-      document.body.addEventListener('drop', handleDropFile);
+      ['dragenter', 'dragover'].forEach(evt => { canvasWrapEl.addEventListener(evt, e => { if (!e.dataTransfer) return; if ([...e.dataTransfer.types].includes('Files')) { if (dragCounter++ === 0) showOverlay(); preventDefault(e); } }); });
+      ['dragleave', 'drop'].forEach(evt => { canvasWrapEl.addEventListener(evt, e => { if (evt === 'drop') { handleDropFile(e); return; } if (--dragCounter <= 0) { dragCounter = 0; hideOverlay(); } preventDefault(e); }); });
     </script>
   </div>
 
@@ -335,6 +353,7 @@
     let minX = 0, minY = 0, maxX = 0, maxY = 0;
     let baseScale = 1, offsetX = 0, offsetY = 0;
     let parts = [], pointsParts = [];
+    let solutionLines = [];
     let partMeta = [];
     let hoveredPartId = null; // 当前悬浮的 part_id，用于整体高亮
     let selectedPartId = null; // 点击选择的 part_id，类似锁定 hover（仅针对整件）
@@ -508,10 +527,23 @@
           }
         }
       }
+      if (data.solution && Array.isArray(data.solution.lines)) {
+        for (const sl of data.solution.lines) {
+          if (sl && sl.start && sl.end) { includePoint(sl.start.x, sl.start.y); includePoint(sl.end.x, sl.end.y); }
+        }
+      }
       if (!isFinite(minX)) { minX = 0; minY = 0; maxX = baseCanvasWidth; maxY = baseCanvasHeight; }
 
-      const dataWidth = Math.max(1, maxX - minX);
-      const dataHeight = Math.max(1, maxY - minY);
+      let dataWidth = Math.max(1, maxX - minX);
+      let dataHeight = Math.max(1, maxY - minY);
+      // 为顶部额外留白：按高度比例增加 maxY，再重新计算高度。
+      // 留白目的是避免初始状态下 solution 标签（向上延伸）被裁剪。
+      const topExtraRatio = 0.10; // 10% 额外顶部空间
+      if (isFinite(dataHeight) && dataHeight > 0) {
+        const topExtra = dataHeight * topExtraRatio;
+        maxY += topExtra;
+        dataHeight = Math.max(1, maxY - minY);
+      }
       const baseScaleX = (baseCanvasWidth - padding * 2) / dataWidth;
       const baseScaleY = (baseCanvasHeight - padding * 2) / dataHeight;
       baseScale = Math.min(baseScaleX, baseScaleY);
@@ -531,6 +563,7 @@
         const maxW = ws.length ? Math.max(...ws) : 0;
         return { ...p, minW, maxW, hue: hueFromString((p.part_name || '') + (p.part_id ?? '')) };
       }) : [];
+      solutionLines = (data.solution && Array.isArray(data.solution.lines)) ? data.solution.lines.map((ln, idx) => ({ ...ln, __idx: idx })) : [];
 
       // 合并 line/point 两类，按 part_id 生成元信息
       const map = new Map();
@@ -578,7 +611,8 @@
       const numParts = partIds.size;
       const partsText = `parts: ${numParts}`;
       const targetText = `target_exterior: ${numTargetPts > 0 ? '1' : '0'}（points: ${numTargetPts}）`;
-      headerTitle.textContent = `${schemaName || '数据'} — ${partsText} · obstacle_box: ${numBoxes} · barrier_line: ${numBarriers} · ${targetText}`;
+      const solutionCount = Array.isArray(data?.solution?.lines) ? data.solution.lines.length : 0;
+      headerTitle.textContent = `${schemaName || '数据'} — ${partsText} · solution: ${solutionCount} · obstacle_box: ${numBoxes} · barrier_line: ${numBarriers} · ${targetText}`;
     }
 
     // Draw functions
@@ -707,6 +741,40 @@
           for (const p of pointsParts) { if (p.part_id !== activeId) continue; for (const pt of p.points || []) drawPoint(p, pt, true); }
         }
       }
+      // solution lines layer
+      if (document.getElementById('showSolution').checked && solutionLines.length) {
+        const activeSol = (selectedFocus && selectedFocus.type === 'solution_line') ? selectedFocus : (hoveredFocus && hoveredFocus.type === 'solution_line' ? hoveredFocus : null);
+        const activeIdx = activeSol ? activeSol.solutionIdx : null;
+        const dimOthers = activeIdx != null;
+        const partHueMap = new Map(partMeta.map(m => [m.part_id, m.hue]));
+        const colorForSol = (sl) => `hsl(${partHueMap.get(sl.part_id) ?? 35} 85% 45%)`;
+        const drawSol = (sl, strong = false) => {
+          const sx = toCanvasX(sl.start.x), sy = toCanvasY(sl.start.y), ex = toCanvasX(sl.end.x), ey = toCanvasY(sl.end.y);
+          const col = colorForSol(sl);
+          ctx.save();
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          ctx.strokeStyle = strong ? '#000' : col; ctx.lineWidth = strong ? 4 : 3;
+          ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+          // arrow head
+          const dx = ex - sx, dy = ey - sy; const len = Math.hypot(dx, dy) || 1; const ux = dx / len, uy = dy / len; const ah = strong ? 9 : 7; const aw = strong ? 5 : 4; const ax = ex - ux * ah, ay = ey - uy * ah; /* smaller arrow */
+          ctx.beginPath(); ctx.fillStyle = strong ? '#000' : col; ctx.moveTo(ex, ey); ctx.lineTo(ax + (-uy) * aw, ay + ux * aw); ctx.lineTo(ax + uy * aw, ay + (-ux) * aw); ctx.closePath(); ctx.fill();
+          // label (place outside end point along extension)
+          const label = `S${sl.__idx}`;
+          const extend = 14 + (strong ? 4 : 0); // distance beyond endpoint
+          const lx = ex + ux * extend; const ly = ey + uy * extend;
+          ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          const metrics = ctx.measureText(label); const bw = metrics.width + 6; const bh = 16;
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(lx - bw / 2, ly - bh / 2, bw, bh, 4); ctx.fill(); }
+          else { ctx.fillRect(lx - bw / 2, ly - bh / 2, bw, bh); }
+          ctx.fillStyle = strong ? col : '#333'; ctx.fillText(label, lx, ly + 0.5);
+          ctx.restore();
+        };
+        ctx.save(); if (dimOthers) ctx.globalAlpha = 0.35;
+        for (const sl of solutionLines) { if (sl.__idx === activeIdx) continue; drawSol(sl, false); }
+        ctx.restore();
+        if (activeIdx != null) { const sl = solutionLines.find(s => s.__idx === activeIdx); if (sl) drawSol(sl, true); }
+      }
       if (!suppressLegend && !isLegendMouseDown) drawLegend();
       updateDetailsPanel();
     }
@@ -719,6 +787,7 @@
       const countTargetPoints = Array.isArray(data?.target_exterior) ? data.target_exterior.length : 0;
       const countTargetPolys = countTargetPoints > 0 ? 1 : 0; // 当前 schema 为单一多边形（用点数组表示）
       const countParts = Array.isArray(partMeta) ? partMeta.length : 0;
+      const countSolution = Array.isArray(solutionLines) ? solutionLines.length : 0;
 
       const countsCard = document.createElement('div');
       countsCard.className = 'details-card';
@@ -732,6 +801,7 @@
         `\n<div>target_exterior: ${countTargetPolys}${countTargetPoints ? `（points: ${countTargetPoints}）` : ''}</div>`,
         `\n<div>obstacle_box: ${countBoxes}</div>`,
         `\n<div>barrier_line: ${countBarriers}</div>`,
+        `\n<div>solution: ${countSolution}</div>`,
         `\n<div>parts: ${countParts}</div>`,
         centerHtml
       ].join('');
@@ -741,6 +811,22 @@
       mkRow(`barrier_line (${countBarriers})`, '<span class="color-swatch" style="background:linear-gradient(90deg, rgba(200,30,30,0.9), rgba(200,30,30,0.9))"></span> dashed red lines');
       mkRow(`obstacle_box (${countBoxes})`, '<span class="color-swatch" style="background:rgba(100,100,100,0.12)"></span> filled box');
       mkRow(`target_exterior (${countTargetPolys}${countTargetPoints ? ` · points ${countTargetPoints}` : ''})`, '<span class="color-swatch" style="background:rgba(40,160,60,0.25)"></span> filled polygon');
+      if (countSolution) {
+        const solTitle = document.createElement('div'); solTitle.className = 'legend-section-title'; solTitle.textContent = `solution (${countSolution})`; legendContent.appendChild(solTitle);
+        const partHueMap = new Map(partMeta.map(m => [m.part_id, m.hue]));
+        solutionLines.forEach(sl => {
+          const row = document.createElement('div');
+          const active = (selectedFocus && selectedFocus.type === 'solution_line' && selectedFocus.solutionIdx === sl.__idx) || (!selectedFocus && hoveredFocus && hoveredFocus.type === 'solution_line' && hoveredFocus.solutionIdx === sl.__idx);
+          row.className = 'part-row' + (active ? ' active' : '');
+          row.id = `legend-solution-line-${sl.__idx}`;
+          const hue = partHueMap.get(sl.part_id) ?? 35;
+          row.innerHTML = `<span class="color-swatch" style="background:hsl(${hue} 85% 45%)"></span>S${sl.__idx} part:#${sl.part_id ?? 'NA'} (${sl.start.x.toFixed(1)},${sl.start.y.toFixed(1)})→(${sl.end.x.toFixed(1)},${sl.end.y.toFixed(1)})`;
+          row.addEventListener('mouseenter', () => { hoveredFocus = { type: 'solution_line', solutionIdx: sl.__idx }; suppressLegend = true; render(); suppressLegend = false; });
+          row.addEventListener('mouseleave', () => { if (hoveredFocus && hoveredFocus.type === 'solution_line' && hoveredFocus.solutionIdx === sl.__idx) hoveredFocus = null; suppressLegend = true; render(); suppressLegend = false; });
+          row.addEventListener('click', (e) => { e.stopPropagation(); const next = { type: 'solution_line', solutionIdx: sl.__idx }; selectedFocus = (selectedFocus && selectedFocus.type === 'solution_line' && selectedFocus.solutionIdx === sl.__idx) ? null : next; selectedPartId = null; focusCanvasOn(next); ensureLegendVisible(next); render(); });
+          legendContent.appendChild(row);
+        });
+      }
 
       // parts summary title
       const partsTitle = document.createElement('div'); partsTitle.className = 'legend-section-title'; partsTitle.textContent = `parts (${countParts})`; legendContent.appendChild(partsTitle);
@@ -902,6 +988,15 @@
       const showBarriers = !!document.getElementById('showBarriers')?.checked;
       const showTargets = !!document.getElementById('showTargets')?.checked;
       const showParts = !!document.getElementById('showParts')?.checked;
+      const showSolution = !!document.getElementById('showSolution')?.checked;
+      if (showSolution) {
+        for (const sl of solutionLines) {
+          if (!sl.start || !sl.end) continue;
+          const sx = toCanvasX(sl.start.x), sy = toCanvasY(sl.start.y), ex = toCanvasX(sl.end.x), ey = toCanvasY(sl.end.y);
+          const d = distPointToSegment(pxCanvas, pyCanvas, sx, sy, ex, ey);
+          if (d.dist <= threshold && (!best || d.dist < best.dist)) best = { type: 'solution_line', line: sl, solutionIdx: sl.__idx, x1: sx, y1: sy, x2: ex, y2: ey, dist: d.dist };
+        }
+      }
       // part lines
       if (showParts) { for (const p of parts) { const arr = p.lines || []; for (let i = 0; i < arr.length; i++) { const item = arr[i]; const s = item.lineSegment; const x1 = toCanvasX(s.x1), y1 = toCanvasY(s.y1), x2 = toCanvasX(s.x2), y2 = toCanvasY(s.y2); const d = distPointToSegment(pxCanvas, pyCanvas, x1, y1, x2, y2); if (d.dist <= threshold && (!best || d.dist < best.dist)) best = { type: 'part_line', part: p, item, lineIdx: i, x1, y1, x2, y2, dist: d.dist, projx: d.projx, projy: d.projy }; } } }
       // part points
@@ -988,6 +1083,7 @@
           if (meta) html += `<div style="margin-top:4px;color:#ddd">lines: ${meta.lineCount} · points: ${meta.pointCount} · weight ${meta.minW}–${meta.maxW}</div>`;
           hoveredPartId = hit.part.part_id ?? null; hoveredFocus = { type: 'point', part_id: hit.part.part_id, pointIdx: hit.pointIdx };
         }
+        else if (hit.type === 'solution_line') { const sl = hit.line; html += `<div style=\"font-weight:600\">solution 线段 <span style=\"font-weight:400;color:#aaa\">(S${sl.__idx})</span></div>`; html += `<div>part_id: ${sl.part_id ?? 'NA'}</div>`; html += `<div>(${sl.start.x.toFixed(2)}, ${sl.start.y.toFixed(2)}) → (${sl.end.x.toFixed(2)}, ${sl.end.y.toFixed(2)})</div>`; const dx = sl.end.x - sl.start.x, dy = sl.end.y - sl.start.y; const len = Math.hypot(dx, dy); const angleDeg = len > 0 ? ((Math.atan2(dy, dx) * 180 / Math.PI) + 360) % 360 : null; html += `<div>长度: ${len.toFixed(3)} · 角度: ${angleDeg != null ? angleDeg.toFixed(1) + '&deg;' : '—'}</div>`; hoveredFocus = { type: 'solution_line', solutionIdx: sl.__idx }; }
         else if (hit.type === 'barrier') { html += `<div style="font-weight:600">barrier_line</div>`; const b = hit.item; html += `<div>(${b.x1.toFixed(2)}, ${b.y1.toFixed(2)}) → (${b.x2.toFixed(2)}, ${b.y2.toFixed(2)})</div>`; }
         else if (hit.type === 'obstacle_edge' || hit.type === 'obstacle_inside') { html += `<div style="font-weight:600">obstacle_box</div>`; html += `<div>box corners: ${Object.keys(hit.item).map(k => { const p = hit.item[k]; return `(${p.x.toFixed(2)},${p.y.toFixed(2)})`; }).join(', ')}</div>`; }
         else if (hit.type === 'target_edge') { html += `<div style="font-weight:600">target_exterior</div>`; html += `<div>edge</div>`; }
@@ -998,7 +1094,7 @@
         ctx.save();
         ctx.strokeStyle = 'rgba(0,0,0,0.8)';
         ctx.lineWidth = 2.5;
-        if (hit.type === 'part_line' || hit.type === 'barrier' || hit.type === 'target_edge' || hit.type === 'obstacle_edge') {
+        if (hit.type === 'part_line' || hit.type === 'barrier' || hit.type === 'target_edge' || hit.type === 'obstacle_edge' || hit.type === 'solution_line') {
           ctx.beginPath(); ctx.moveTo(hit.x1, hit.y1); ctx.lineTo(hit.x2, hit.y2); ctx.stroke();
         } else if (hit.type === 'part_point') {
           ctx.beginPath(); ctx.arc(hit.cx, hit.cy, hit.r + 2, 0, Math.PI * 2); ctx.stroke();
@@ -1157,6 +1253,11 @@
           selectedFocus = (selectedFocus && selectedFocus.type === 'point' && selectedFocus.part_id === pid && selectedFocus.pointIdx === hit.pointIdx) ? null : next;
           selectedPartId = null;
           ensureLegendVisible(next);
+        } else if (hit && hit.type === 'solution_line') {
+          const next = { type: 'solution_line', solutionIdx: hit.solutionIdx };
+          selectedFocus = (selectedFocus && selectedFocus.type === 'solution_line' && selectedFocus.solutionIdx === hit.solutionIdx) ? null : next;
+          selectedPartId = null;
+          ensureLegendVisible(next);
         } else {
           selectedFocus = null; selectedPartId = null;
         }
@@ -1175,14 +1276,30 @@
       const mxCanvas = mx * (baseCanvasWidth / rect.width);
       const myCanvas = my * (baseCanvasHeight / rect.height);
       const hit = findHitAt(mxCanvas, myCanvas, 8);
-      if (hit && (hit.type === 'part_line' || hit.type === 'part_point')) {
-        const pid = hit.part.part_id ?? null;
-        selectedPartId = (selectedPartId === pid) ? null : pid;
-        selectedFocus = null;
-        ensureLegendVisible({ type: 'part', part_id: pid });
-      } else {
-        selectedPartId = null; selectedFocus = null;
-      }
+      if (hit) {
+        if (hit.type === 'part_line' || hit.type === 'part_point') {
+          const pid = hit.part.part_id ?? null;
+          selectedPartId = (selectedPartId === pid) ? null : pid;
+          selectedFocus = null;
+          ensureLegendVisible({ type: 'part', part_id: pid });
+        } else if (hit.type === 'solution_line') {
+          // emulate double-click part: select part_id if available; otherwise just focus that solution line
+          const sl = hit.line;
+          if (sl && sl.part_id != null) {
+            const pid = sl.part_id;
+            selectedPartId = (selectedPartId === pid) ? null : pid;
+            selectedFocus = null;
+            ensureLegendVisible({ type: 'part', part_id: pid });
+          } else {
+            // fallback: treat as selecting the solution line itself
+            selectedPartId = null;
+            selectedFocus = { type: 'solution_line', solutionIdx: hit.solutionIdx };
+            ensureLegendVisible({ type: 'solution_line', solutionIdx: hit.solutionIdx });
+          }
+        } else {
+          selectedPartId = null; selectedFocus = null;
+        }
+      } else { selectedPartId = null; selectedFocus = null; }
       render();
     });
 
@@ -1218,29 +1335,62 @@
     document.getElementById('showBarriers').addEventListener('change', render);
     document.getElementById('showTargets').addEventListener('change', render);
     document.getElementById('showParts').addEventListener('change', render);
+    document.getElementById('showSolution').addEventListener('change', render);
 
     // 首次渲染（无数据占位，需用户选择文件）
     render();
 
-    // 文件选择：读取外部 JSON 并渲染
-    const fileInput = document.getElementById('jsonFile');
-    if (fileInput) {
-      fileInput.addEventListener('change', (ev) => {
-        const f = ev.target.files && ev.target.files[0];
-        if (!f) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const json = JSON.parse(String(reader.result));
-            setupFromData(json);
-          } catch (e) {
-            alert('JSON 解析失败：' + e.message);
-          }
-        };
-        reader.onerror = () => alert('文件读取失败');
-        reader.readAsText(f, 'utf-8');
-      });
+    // ------------- 剪贴板粘贴 JSON 支持 -------------
+    function showTransientMsg(msg) {
+      let box = document.getElementById('pasteHint');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'pasteHint';
+        box.style.cssText = 'position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.72);color:#fff;padding:6px 10px;font-size:12px;border-radius:4px;z-index:9999;pointer-events:none;max-width:260px;line-height:1.4;';
+        document.body.appendChild(box);
+      }
+      box.textContent = msg;
+      box.style.opacity = '1';
+      clearTimeout(box.__timer);
+      box.__timer = setTimeout(() => { box.style.transition = 'opacity .4s'; box.style.opacity = '0'; }, 1800);
     }
+    // 仅当鼠标当前位于画布区域上方时才响应粘贴（限制作用域）
+    let _isMouseOnCanvasWrap = false;
+    const _canvasWrapForPaste = document.getElementById('canvasWrap');
+    if (_canvasWrapForPaste) {
+      _canvasWrapForPaste.addEventListener('mouseenter', () => { _isMouseOnCanvasWrap = true; });
+      _canvasWrapForPaste.addEventListener('mouseleave', () => { _isMouseOnCanvasWrap = false; });
+    }
+    window.addEventListener('paste', (e) => {
+      if (!_isMouseOnCanvasWrap) return; // 不在 canvas 区域: 直接忽略
+      const target = e.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      // 先尝试是否为复制的文件 (资源管理器里 Ctrl+C 然后在此页面 Ctrl+V)
+      const items = e.clipboardData?.items || [];
+      const fileItems = [];
+      for (const it of items) { if (it.kind === 'file') { const f = it.getAsFile(); if (f && /\.json$/i.test(f.name)) fileItems.push(f); } }
+      if (fileItems.length) {
+        e.preventDefault();
+        let i = 0; function loadNext() { if (i >= fileItems.length) return; const f = fileItems[i++]; const r = new FileReader(); r.onload = () => { try { const json = JSON.parse(String(r.result)); if (window.__vis && window.__vis.openNewTab) { window.__vis.openNewTab(json, f.name); } else { setupFromData(json); } if (i === 1) showTransientMsg('已粘贴 ' + fileItems.length + ' 个 JSON 文件'); } catch (err) { alert('粘贴文件解析失败: ' + f.name + ' => ' + err.message); } finally { loadNext(); } }; r.onerror = () => { alert('粘贴文件读取失败: ' + f.name); loadNext(); }; r.readAsText(f, 'utf-8'); }
+        loadNext();
+      }
+    });
+
+    // ------------- 分隔条（调整 legend 宽度）-------------
+    (function initSplitter() {
+      const splitter = document.getElementById('splitter');
+      if (!splitter) return;
+      const legend = document.getElementById('legend');
+      let dragging = false; let startX = 0; let startW = 0;
+      const saved = localStorage.getItem('vis_legend_width');
+      if (saved) {
+        const w = parseInt(saved, 10); if (w > 160 && w < window.innerWidth - 200) { legend.style.width = w + 'px'; legend.style.flex = '0 0 ' + w + 'px'; }
+      }
+      splitter.addEventListener('mousedown', (e) => { dragging = true; startX = e.clientX; startW = legend.getBoundingClientRect().width; splitter.classList.add('dragging'); document.body.style.userSelect = 'none'; });
+      // 根据反馈：向左拖动增大 legend（与常规逻辑相反）
+      window.addEventListener('mousemove', (e) => { if (!dragging) return; const dx = e.clientX - startX; let newW = startW - dx; newW = Math.max(180, Math.min(newW, window.innerWidth - 260)); legend.style.width = newW + 'px'; legend.style.flex = '0 0 ' + newW + 'px'; });
+      window.addEventListener('mouseup', () => { if (!dragging) return; dragging = false; splitter.classList.remove('dragging'); document.body.style.userSelect = ''; localStorage.setItem('vis_legend_width', parseInt(legend.style.width, 10)); });
+    })();
 
     // Expose helper on window for debugging / programmatic load
     window.__vis = { toCanvasX, toCanvasY, setData: setupFromData, get data() { return data; } };
@@ -1249,6 +1399,108 @@
       legendRoot.addEventListener('mousedown', () => { isLegendMouseDown = true; });
       window.addEventListener('mouseup', () => { if (isLegendMouseDown) { isLegendMouseDown = false; /* 让后续的 click 先触发，点击处理里会主动 render */ } });
     }
+
+    // ================== 多标签页支持 ==================
+    (function multiTab() {
+      const tabBar = document.getElementById('tabBar');
+      const addTabBtn = document.getElementById('addTabBtn');
+      if (!tabBar || !addTabBtn) return; // 安全退化
+      let tabs = [];
+      let activeTabIndex = -1;
+      let tabIdSeq = 1; // 唯一 id
+      // ---- 持久化相关 ----
+      const STORAGE_KEY = 'vis_tab_set_v1';
+      function serializeTabs() {
+        return JSON.stringify({
+          ver: 1,
+          active: activeTabIndex,
+          tabs: tabs.map(t => ({
+            id: t.__id,
+            name: t.name,
+            data: t.data, // 原始 json
+            // 视图状态
+            minX: t.minX, minY: t.minY, maxX: t.maxX, maxY: t.maxY,
+            baseScale: t.baseScale, offsetX: t.offsetX, offsetY: t.offsetY,
+            panX: t.panX, panY: t.panY, currentScale: t.currentScale, baseCssScale: t.baseCssScale,
+            scrollLeft: t.scrollLeft, scrollTop: t.scrollTop, cssWidth: t.cssWidth, cssHeight: t.cssHeight,
+            // 选中/hover
+            selectedPartId: t.selectedPartId, hoveredPartId: t.hoveredPartId,
+            selectedFocus: t.selectedFocus, hoveredFocus: t.hoveredFocus
+          }))
+        });
+      }
+      function persistNow() { try { localStorage.setItem(STORAGE_KEY, serializeTabs()); } catch (e) { console.warn('保存 tabs 失败', e); } }
+      function tryRestore() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY); if (!raw) return false;
+          const obj = JSON.parse(raw);
+          if (!obj || !Array.isArray(obj.tabs)) return false;
+          tabs = obj.tabs.map(t => Object.assign({
+            __id: t.id || tabIdSeq++,
+            data: null, minX: 0, minY: 0, maxX: 0, maxY: 0, baseScale: 1, offsetX: 0, offsetY: 0, parts: [], pointsParts: [], solutionLines: [], partMeta: [], hoveredPartId: null, selectedPartId: null, hoveredFocus: null, selectedFocus: null, panX: 0, panY: 0, currentScale: 1, baseCssScale: 1, cssWidth: null, cssHeight: null, scrollLeft: 0, scrollTop: 0
+          }, t));
+          activeTabIndex = Math.min(Math.max(0, obj.active || 0), tabs.length - 1);
+          tabs.forEach(rebuildDerivedForTab);
+          return true;
+        } catch (e) { console.warn('恢复失败', e); return false; }
+      }
+      function clearPersist() { localStorage.removeItem(STORAGE_KEY); }
+      function makeEmptyState(name = '未命名') { return { name, data: null, minX: 0, minY: 0, maxX: 0, maxY: 0, baseScale: 1, offsetX: 0, offsetY: 0, parts: [], pointsParts: [], solutionLines: [], partMeta: [], hoveredPartId: null, selectedPartId: null, hoveredFocus: null, selectedFocus: null, panX: 0, panY: 0, currentScale: 1, baseCssScale: 1, cssWidth: null, cssHeight: null, scrollLeft: 0, scrollTop: 0 }; }
+      function captureCurrentIntoTab(t) { if (!t) return; const rect = canvas.getBoundingClientRect(); Object.assign(t, { data, minX, minY, maxX, maxY, baseScale, offsetX, offsetY, parts: [...parts], pointsParts: [...pointsParts], solutionLines: [...solutionLines], partMeta: [...partMeta], hoveredPartId, selectedPartId, hoveredFocus, selectedFocus, panX, panY, currentScale, baseCssScale, cssWidth: rect.width, cssHeight: rect.height, scrollLeft: canvasWrap.scrollLeft, scrollTop: canvasWrap.scrollTop }); }
+      function rebuildDerivedForTab(t) { if (!t || !t.data) return; const raw = t.data; const mkHue = p => hueFromString((p.part_name || '') + (p.part_id ?? '')); const lineCandidates = (raw.part && Array.isArray(raw.part.line_candidates)) ? raw.part.line_candidates.map(p => { const ws = (p.lines || []).map(l => l.weight); const minW = ws.length ? Math.min(...ws) : 0; const maxW = ws.length ? Math.max(...ws) : 0; return { ...p, minW, maxW, hue: mkHue(p) }; }) : []; const pointCandidates = (raw.part && Array.isArray(raw.part.point_candidates)) ? raw.part.point_candidates.map(p => { const ws = (p.points || []).map(pt => pt.weight); const minW = ws.length ? Math.min(...ws) : 0; const maxW = ws.length ? Math.max(...ws) : 0; return { ...p, minW, maxW, hue: mkHue(p) }; }) : []; const solLines = (raw.solution && Array.isArray(raw.solution.lines)) ? raw.solution.lines.map((ln, idx) => ({ ...ln, __idx: idx })) : []; const metaMap = new Map(); function addM(p, type) { const id = p.part_id ?? (p.part_name || ''); if (!metaMap.has(id)) metaMap.set(id, { part_id: p.part_id, part_name: p.part_name || '', hue: p.hue, lineCount: 0, pointCount: 0, minW: Infinity, maxW: -Infinity }); const m = metaMap.get(id); m.hue = p.hue; if (type === 'line') { const cnt = (p.lines || []).length; m.lineCount += cnt; if (isFinite(p.minW)) m.minW = Math.min(m.minW, p.minW); if (isFinite(p.maxW)) m.maxW = Math.max(m.maxW, p.maxW); } else { const cnt = (p.points || []).length; m.pointCount += cnt; if (isFinite(p.minW)) m.minW = Math.min(m.minW, p.minW); if (isFinite(p.maxW)) m.maxW = Math.max(m.maxW, p.maxW); } } lineCandidates.forEach(p => addM(p, 'line')); pointCandidates.forEach(p => addM(p, 'point')); t.parts = lineCandidates; t.pointsParts = pointCandidates; t.solutionLines = solLines; t.partMeta = Array.from(metaMap.values()).map(m => ({ ...m, minW: isFinite(m.minW) ? m.minW : 0, maxW: isFinite(m.maxW) ? m.maxW : 0 })); }
+      function snapshot() { if (activeTabIndex < 0) return; const t = tabs[activeTabIndex]; t.scrollLeft = canvasWrap.scrollLeft; t.scrollTop = canvasWrap.scrollTop; const rect = canvas.getBoundingClientRect(); t.cssWidth = rect.width; t.cssHeight = rect.height; Object.assign(t, { data, minX, minY, maxX, maxY, baseScale, offsetX, offsetY, parts, pointsParts, solutionLines, partMeta, hoveredPartId, selectedPartId, hoveredFocus, selectedFocus, panX, panY, currentScale, baseCssScale }); }
+      function apply(t) { data = t.data; minX = t.minX; minY = t.minY; maxX = t.maxX; maxY = t.maxY; baseScale = t.baseScale; offsetX = t.offsetX; offsetY = t.offsetY; parts = t.parts; pointsParts = t.pointsParts; solutionLines = t.solutionLines; partMeta = t.partMeta; hoveredPartId = t.hoveredPartId; selectedPartId = t.selectedPartId; hoveredFocus = t.hoveredFocus; selectedFocus = t.selectedFocus; panX = t.panX; panY = t.panY; currentScale = t.currentScale; baseCssScale = t.baseCssScale; if (t.cssWidth && t.cssHeight) { canvas.style.width = t.cssWidth + 'px'; canvas.style.height = t.cssHeight + 'px'; } setTimeout(() => { canvasWrap.scrollLeft = t.scrollLeft || 0; canvasWrap.scrollTop = t.scrollTop || 0; applyPanTransform(); }, 0); }
+      function updateTabBar() {
+        tabBar.querySelectorAll('.tab').forEach(n => n.remove());
+        tabs.forEach((t, i) => {
+          const el = document.createElement('div');
+          el.className = 'tab';
+          el.draggable = true;
+          if (!t.__id) t.__id = tabIdSeq++;
+          el.dataset.id = t.__id;
+          const isActive = i === activeTabIndex;
+          el.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid ' + (isActive ? '#2684ff' : '#d0d5db') + ';background:' + (isActive ? '#e7f1ff' : '#fafbfc') + ';border-radius:6px;font-size:12px;cursor:pointer;position:relative;user-select:none;';
+          const partCount = (t.partMeta || []).length || 0;
+          const solCount = (t.solutionLines || []).length || 0;
+          const boxCount = (t.data && Array.isArray(t.data.obstacle_box) ? t.data.obstacle_box.length : 0);
+          const barrierCount = (t.data && Array.isArray(t.data.barrier_line) ? t.data.barrier_line.length : 0);
+          const statsTitle = `parts: ${partCount}\nsolution: ${solCount}\nboxes: ${boxCount}\nbarriers: ${barrierCount}`;
+          el.title = statsTitle;
+          el.innerHTML = '<span class="tab-name" style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (t.name || '未命名') + '</span><span class="tab-close" title="关闭" style="font-weight:600;color:#888;">×</span>';
+          el.addEventListener('click', ev => { if (ev.target.classList.contains('tab-close')) { closeTab(i); } else { switchTab(i); } });
+          // 双击重命名 -> 悬浮面板
+          el.addEventListener('dblclick', ev => { ev.stopPropagation(); openRenameFloating(t, el, i); });
+          // 拖拽排序（用 id）
+          el.addEventListener('dragstart', e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(t.__id)); el.classList.add('dragging-tab'); });
+          el.addEventListener('dragover', e => { e.preventDefault(); const draggingEl = tabBar.querySelector('.tab.dragging-tab'); if (!draggingEl || draggingEl === el) return; const rect = el.getBoundingClientRect(); const mid = rect.left + rect.width / 2; if (e.clientX < mid) { tabBar.insertBefore(draggingEl, el); } else { const next = el.nextSibling; tabBar.insertBefore(draggingEl, next); } });
+          el.addEventListener('dragend', () => { const orderedIds = []; tabBar.querySelectorAll('.tab').forEach(tb => { if (tb.id === 'addTabBtn') return; const id = parseInt(tb.dataset.id, 10); if (!isNaN(id)) orderedIds.push(id); }); const newOrder = []; orderedIds.forEach(id => { const f = tabs.find(tt => tt.__id === id); if (f) newOrder.push(f); }); if (newOrder.length === tabs.length) { const activeId = tabs[activeTabIndex]?.__id; tabs = newOrder; activeTabIndex = Math.max(0, tabs.findIndex(tt => tt.__id === activeId)); updateTabBar(); persistNow(); } document.querySelectorAll('.dragging-tab').forEach(n => n.classList.remove('dragging-tab')); });
+          // 悬浮重命名面板实现
+          let renamePanel = null;
+          function openRenameFloating(tabObj, anchorEl) { closeRenamePanel(); const r = anchorEl.getBoundingClientRect(); renamePanel = document.createElement('div'); renamePanel.style.cssText = 'position:fixed;z-index:9999;left:' + (r.left) + 'px;top:' + (r.bottom + 4) + 'px;background:#fff;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,.15);padding:6px 8px;border-radius:6px;font-size:12px;display:flex;gap:6px;align-items:center;'; renamePanel.innerHTML = '<input type="text" style="width:150px;padding:2px 4px;font-size:12px;" value="' + (tabObj.name || '未命名').replace(/"/g, '&quot;') + '" /> <button style="padding:2px 8px;">保存</button><button style="padding:2px 8px;">取消</button>'; document.body.appendChild(renamePanel); const input = renamePanel.querySelector('input'); const [btnSave, btnCancel] = renamePanel.querySelectorAll('button'); const commit = () => { tabObj.name = input.value.trim() || '未命名'; updateTabBar(); persistNow(); closeRenamePanel(); }; const cancel = () => closeRenamePanel(); input.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') cancel(); }); btnSave.addEventListener('click', commit); btnCancel.addEventListener('click', cancel); setTimeout(() => input.focus(), 0); }
+          function closeRenamePanel() { if (renamePanel) { renamePanel.remove(); renamePanel = null; } }
+          window.addEventListener('mousedown', e => { if (renamePanel && !renamePanel.contains(e.target) && !e.target.closest('.tab')) closeRenamePanel(); }, true);
+          tabBar.insertBefore(el, addTabBtn);
+        });
+      }
+      function switchTab(i) { if (i === activeTabIndex || i < 0 || i >= tabs.length) return; snapshot(); activeTabIndex = i; apply(tabs[i]); if (tabs[i].data) updateHeader(); else headerTitle.textContent = '未加载数据 — 拖拽或粘贴 JSON 以开始'; syncBackingStoreToCss(); render(); updateTabBar(); persistNow(); }
+      function closeTab(i) { if (i < 0 || i >= tabs.length) return; const wasActive = i === activeTabIndex; tabs.splice(i, 1); if (!tabs.length) { activeTabIndex = -1; data = null; headerTitle.textContent = '未加载数据 — 拖拽或粘贴 JSON 以开始'; render(); updateTabBar(); persistNow(); return; } if (wasActive) { activeTabIndex = Math.max(0, i - 1); apply(tabs[activeTabIndex]); if (tabs[activeTabIndex].data) updateHeader(); else headerTitle.textContent = '未加载数据 — 拖拽或粘贴 JSON 以开始'; render(); } else if (i < activeTabIndex) { activeTabIndex--; } updateTabBar(); persistNow(); }
+      function openNewTab(json, fileName) { const name = fileName || (json && json.schema_name) || '未命名'; if (activeTabIndex === -1) { const t = makeEmptyState(name); t.__id = tabIdSeq++; tabs = [t]; activeTabIndex = 0; apply(t); setupFromData(json); t.name = name; captureCurrentIntoTab(t); updateTabBar(); persistNow(); return; } snapshot(); const t = makeEmptyState(name); t.__id = tabIdSeq++; tabs.push(t); activeTabIndex = tabs.length - 1; apply(t); setupFromData(json); t.name = name; captureCurrentIntoTab(t); updateTabBar(); persistNow(); }
+      addTabBtn.addEventListener('click', () => { openNewTab({}, '新标签'); });
+      // 清空按钮（仅保留清空逻辑），并且默认自动恢复
+      const clearBtn = document.getElementById('clearTabsBtn');
+      if (clearBtn) clearBtn.addEventListener('click', () => { if (!confirm('确定清空所有标签页并清除保存记录?')) return; tabs = []; activeTabIndex = -1; data = null; clearPersist(); render(); updateTabBar(); headerTitle.textContent = '未加载数据 — 拖拽或粘贴 JSON 以开始'; });
+      // 页面初始化自动恢复
+      if (tryRestore() && tabs.length) { apply(tabs[activeTabIndex]); render(); updateTabBar(); } else { activeTabIndex = -1; tabs = []; data = null; headerTitle.textContent = '未加载数据 — 拖拽或粘贴 JSON 以开始'; render(); updateTabBar(); }
+      updateTabBar();
+      // hook 全局
+      const originalSetData = window.__vis.setData; window.__vis.openNewTab = openNewTab; window.__vis.switchTab = switchTab; window.__vis.closeTab = closeTab; window.__vis.getTabs = () => tabs.slice(); window.__vis.setData = (d) => openNewTab(d, (d && d.schema_name) || '未命名');
+      // 暴露一个便捷函数
+      window.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'w') { // Ctrl+W 关闭当前
+          closeTab(activeTabIndex); e.preventDefault();
+        }
+      });
+    })();
   </script>
 </body>
 
