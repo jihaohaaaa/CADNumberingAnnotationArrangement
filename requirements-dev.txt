@@ -7,4 +7,3 @@ ipympl
 pyinstaller
 pyarmor
 rich
-typer

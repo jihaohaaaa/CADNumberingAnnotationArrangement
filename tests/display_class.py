@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
-from CADAlgo.parser import *
+from CADAlgo.parser import Schema
 from shapely.geometry import (
     Point,
     LineString,
