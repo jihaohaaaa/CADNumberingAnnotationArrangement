@@ -4,6 +4,8 @@
 <head>
   <meta charset="utf-8" />
   <title>Line Candidates Visualizer — All Geometry</title>
+  <!-- jsPDF for exporting canvases to PDF -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@3.0.3/dist/jspdf.umd.min.js"></script>
   <style>
     html,
     body {
@@ -257,6 +259,9 @@
     <div id="addTabBtn"
       style="padding:4px 10px;border:1px dashed #bbb;border-radius:6px;font-size:12px;cursor:pointer;color:#666;user-select:none;">
       + 新标签</div>
+    <div id="exportPdfBtn"
+      style="padding:4px 10px;border:1px solid #5b8;border-radius:6px;font-size:12px;cursor:pointer;color:#276;user-select:none;">
+      导出PDF</div>
     <div id="clearTabsBtn"
       style="padding:4px 10px;border:1px solid #e99;border-radius:6px;font-size:12px;cursor:pointer;color:#b22;user-select:none;">
       清空</div>
@@ -534,14 +539,16 @@
       }
       if (!isFinite(minX)) { minX = 0; minY = 0; maxX = baseCanvasWidth; maxY = baseCanvasHeight; }
 
+      // 统一在 AABB 四周增加 5% 留白（总尺寸放大 5%），避免元素/标签紧贴边缘
       let dataWidth = Math.max(1, maxX - minX);
       let dataHeight = Math.max(1, maxY - minY);
-      // 为顶部额外留白：按高度比例增加 maxY，再重新计算高度。
-      // 留白目的是避免初始状态下 solution 标签（向上延伸）被裁剪。
-      const topExtraRatio = 0.10; // 10% 额外顶部空间
-      if (isFinite(dataHeight) && dataHeight > 0) {
-        const topExtra = dataHeight * topExtraRatio;
-        maxY += topExtra;
+      const expandRatio = 0.05; // 总体放大 5%
+      if (isFinite(dataWidth) && isFinite(dataHeight) && dataWidth > 0 && dataHeight > 0) {
+        const expandW = dataWidth * expandRatio;
+        const expandH = dataHeight * expandRatio;
+        minX -= expandW / 2; maxX += expandW / 2;
+        minY -= expandH / 2; maxY += expandH / 2;
+        dataWidth = Math.max(1, maxX - minX);
         dataHeight = Math.max(1, maxY - minY);
       }
       const baseScaleX = (baseCanvasWidth - padding * 2) / dataWidth;
@@ -1489,6 +1496,106 @@
       // 清空按钮（仅保留清空逻辑），并且默认自动恢复
       const clearBtn = document.getElementById('clearTabsBtn');
       if (clearBtn) clearBtn.addEventListener('click', () => { if (!confirm('确定清空所有标签页并清除保存记录?')) return; tabs = []; activeTabIndex = -1; data = null; clearPersist(); render(); updateTabBar(); headerTitle.textContent = '未加载数据 — 拖拽或粘贴 JSON 以开始'; });
+      // 导出 PDF 按钮
+      const exportBtn = document.getElementById('exportPdfBtn');
+      if (exportBtn) {
+        exportBtn.addEventListener('click', async () => {
+          if (!tabs.length) { alert('没有可导出的标签页'); return; }
+          if (exportBtn.__busy) return;
+          exportBtn.__busy = true;
+          const originalText = exportBtn.textContent;
+          exportBtn.textContent = '导出中...';
+          exportBtn.style.opacity = '0.6';
+          try {
+            // 动态获取 jsPDF
+            const { jsPDF } = window.jspdf || {};
+            if (!jsPDF) { alert('jsPDF 未加载'); return; }
+            // 标题中文方案：使用离屏 canvas 渲染文字转成图片嵌入 PDF，避免字体缺失问题
+            function renderTitleImage(title, maxW) {
+              const fontPx = 14; // 接近 UI 字号
+              const paddingX = 4, paddingY = 2;
+              const cvs = document.createElement('canvas');
+              const ctx2 = cvs.getContext('2d');
+              ctx2.font = fontPx + 'px "Microsoft YaHei", "PingFang SC", "Heiti SC", Arial, sans-serif';
+              // 过长截断
+              function fit(str) {
+                if (ctx2.measureText(str).width <= maxW) return str;
+                const ell = '...';
+                let base = str;
+                while (base.length > 0) {
+                  base = base.slice(0, -1);
+                  if (ctx2.measureText(base + ell).width <= maxW) return base + ell;
+                }
+                return ell;
+              }
+              const fitted = fit(title);
+              const w = Math.ceil(ctx2.measureText(fitted).width);
+              cvs.width = w + paddingX * 2;
+              cvs.height = fontPx + paddingY * 2 + 2;
+              ctx2.font = fontPx + 'px "Microsoft YaHei", "PingFang SC", "Heiti SC", Arial, sans-serif';
+              ctx2.fillStyle = '#000';
+              ctx2.textBaseline = 'top';
+              ctx2.fillText(fitted, paddingX, paddingY);
+              return { dataUrl: cvs.toDataURL('image/png'), w: cvs.width, h: cvs.height };
+            }
+            // A4 纵向尺寸 (pt)
+            const pdf = new jsPDF('p', 'pt', 'a4');
+            const pageW = pdf.internal.pageSize.getWidth();
+            const pageH = pdf.internal.pageSize.getHeight();
+            const margin = 24; // 页边距
+            const titleGap = 6; // 标题与图像之间空隙
+            const scaleDown = (imgW, imgH, maxW, maxH) => {
+              let r = Math.min(maxW / imgW, maxH / imgH, 1);
+              return { w: imgW * r, h: imgH * r, r };
+            };
+            const activeBefore = activeTabIndex;
+            snapshot(); // 先保存当前活动页
+            for (let i = 0; i < tabs.length; i++) {
+              const t = tabs[i];
+              if (!t.data) continue; // 跳过空的
+              // 切换到该 tab 并渲染
+              activeTabIndex = i;
+              apply(t);
+              render();
+              await new Promise(r => setTimeout(r, 30)); // 让浏览器渲染完成
+              const rect = canvas.getBoundingClientRect();
+              const dataUrl = canvas.toDataURL('image/png');
+              const availableW = pageW - margin * 2;
+              const titleRaw = (t.name || '未命名') + (t.data && t.data.schema_name ? ' — ' + t.data.schema_name : '');
+              const titleImg = renderTitleImage(titleRaw, availableW);
+              const availableH = pageH - margin * 2 - titleImg.h - titleGap;
+              const scaled = scaleDown(rect.width, rect.height, availableW, availableH);
+              if (i !== 0) pdf.addPage();
+              // 标题图片 (左对齐; 如需居中可改 (pageW - titleImg.w)/2 )
+              pdf.addImage(titleImg.dataUrl, 'PNG', margin, margin, titleImg.w, titleImg.h);
+              const imgX = margin + (availableW - scaled.w) / 2;
+              const imgY = margin + titleImg.h + titleGap + (availableH - scaled.h) / 2;
+              pdf.addImage(dataUrl, 'PNG', imgX, imgY, scaled.w, scaled.h);
+              exportBtn.textContent = `导出中 ${i + 1}/${tabs.length}`;
+            }
+            // 恢复之前的活动页
+            if (activeBefore >= 0 && activeBefore < tabs.length) {
+              activeTabIndex = activeBefore;
+              apply(tabs[activeBefore]);
+              render();
+            }
+            const ts = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            const fileName = `tabs_export_${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.pdf`;
+            pdf.save(fileName);
+            exportBtn.textContent = originalText;
+          } catch (e) {
+            console.error(e);
+            alert('导出失败: ' + e.message);
+          } finally {
+            exportBtn.__busy = false;
+            exportBtn.style.opacity = '';
+            exportBtn.textContent = originalText;
+            // 恢复标签栏 UI
+            updateTabBar();
+          }
+        });
+      }
       // 页面初始化自动恢复
       if (tryRestore() && tabs.length) { apply(tabs[activeTabIndex]); render(); updateTabBar(); } else { activeTabIndex = -1; tabs = []; data = null; headerTitle.textContent = '未加载数据 — 拖拽或粘贴 JSON 以开始'; render(); updateTabBar(); }
       updateTabBar();
