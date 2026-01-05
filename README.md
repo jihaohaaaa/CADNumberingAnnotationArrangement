@@ -213,3 +213,19 @@ flowchart TD
   - 日志：全覆盖以 INFO 输出到控制台；DFS 细节以 DEBUG 写入 `backtracking_dfs.log`；最终返回 `best_solution`。
 
 提示：优先级越小越先被处理；在候选内部也优先使用来自高优先级点的连线，并倾向更短的连线，这会引导回溯更早满足高优先级部件的布线需求。
+
+结果演示
+
+![](./tests/N03-成品图-主视图.png)
+
+![](./tests/N04-成品图-主视图.png)
+
+![](./tests/N05-成品图-主视图.png)
+
+![](./tests/N06-成品图-主视图.png)
+
+![](./tests/N07-成品图-主视图.png)
+
+![](./tests/N11-成品图-主视图.png)
+
+![](./tests/N12-成品图-主视图.png)
